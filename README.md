@@ -1,0 +1,32 @@
+# Podrush
+
+Minimal FastAPI + HTMX web app to download podcast episodes and create sped-up MP3s for Garmin (or any device).
+
+## Prerequisites
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) for dependency management (or use your own venv)
+- `ffmpeg` in PATH (used for audio conversion)
+- Optional: `.env` with `USER_AGENT`, `MAX_SLUG_LEN`, or `GOOGLE_API_KEY` (if you enable AI naming)
+
+## Setup
+```bash
+uv sync               # install dependencies
+uv run uvicorn podrush.app:app --reload
+```
+Then open http://localhost:8000/feeds.
+
+## Usage
+- Add an RSS feed URL.
+- Open a feed to auto-refresh episodes.
+- Click a speed button (1.1x–2.0x) to convert; existing conversions show as download links.
+- Original downloads are cached under `media/original/`; converted files live in `media/converted/`.
+
+## Storage & filenames
+- SQLite database: `db.sql` (auto-created).
+- Originals: `media/original/<date>-id<episode_id>-orig.mp3`.
+- Converted: `media/converted/<date>-id<episode_id>-<speed>x.mp3` (UI discovers existing conversions by scanning this folder).
+
+## Notes
+- Conversion uses `ffmpeg -filter:a atempo=<speed>`.
+- Feeds are refreshed when viewed (stale >6h).
+- HTMX provides the button-to-link swap; spinners indicate in-progress conversions.
