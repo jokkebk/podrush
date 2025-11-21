@@ -1,0 +1,17 @@
+[project]
+name = "podrush"
+version = "0.1.0"
+description = "Minimal FastAPI app for preparing sped-up podcast audio for Garmin watches"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "jinja2",
+  "httpx",
+  "feedparser",
+  "python-multipart",
+]
+
+[tool.uv]
+dev-dependencies = []

@@ -1,0 +1,15 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+
+# OS junk
+.DS_Store
+
+# Local data
+db.sql
+media/original/
+media/converted/
+
+# Tooling caches
+.uv-cache/
+uv.lock

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="container">
+  <hgroup>
+    <h1>Feeds</h1>
+    <p>Add podcasts and keep them fresh automatically.</p>
+  </hgroup>
+
+  <form method="post" action="/feeds">
+    <label for="url">RSS feed URL</label>
+    <input type="url" id="url" name="url" placeholder="https://example.com/feed.xml" required>
+    <button type="submit">Add feed</button>
+  </form>
+
+  <section class="grid" style="margin-top: 1.5rem;">
+    {% for feed in feeds %}
+      <article>
+        <header>
+          <h3><a href="/feeds/{{ feed['id'] }}">{{ feed['title'] or feed['url'] }}</a></h3>
+          <p>{{ feed['description'] or '' }}</p>
+        </header>
+        <footer>
+          <small>Last checked: {{ feed['last_checked'] or 'never' }}</small>
+        </footer>
+      </article>
+    {% else %}
+      <p>No feeds yet. Add one to get started.</p>
+    {% endfor %}
+  </section>
+</main>
+{% endblock %}

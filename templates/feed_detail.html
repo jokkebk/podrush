@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="container">
+  <p><a href="/feeds">&larr; Back to feeds</a></p>
+  <header>
+    <h1>{{ feed['title'] or feed['url'] }}</h1>
+    <p>{{ feed['description'] or '' }}</p>
+  </header>
+
+  <section style="margin-top: 1.5rem;">
+    {% for ep in episodes %}
+      <article>
+        <header>
+          <h3>{{ ep['title'] or 'Untitled episode' }}</h3>
+          <p><small>{{ ep['published_at'] or '' }}</small></p>
+        </header>
+        <p>{{ ep['description']|default('')|safe }}</p>
+        <div class="grid">
+          {% for speed in speeds %}
+            <button
+              hx-post="/episodes/{{ ep['id'] }}/convert"
+              hx-vals='{"speed": "{{ speed }}"}'
+              hx-target="this"
+              hx-swap="outerHTML">
+              {{ speed }}x
+            </button>
+          {% endfor %}
+        </div>
+      </article>
+    {% else %}
+      <p>No episodes yet for this feed.</p>
+    {% endfor %}
+  </section>
+</main>
+{% endblock %}
