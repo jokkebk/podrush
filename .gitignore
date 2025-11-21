@@ -9,6 +9,7 @@ __pycache__/
 db.sql
 media/original/
 media/converted/
+.env
 
 # Tooling caches
 .uv-cache/
