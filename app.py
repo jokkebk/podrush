@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import logging
+import os
+import re
 import sqlite3
 import subprocess
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -13,12 +17,21 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from env_utils import env_int, load_env_from_dotenv
+from gemini_shorthand import ai_short_name
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("podrush")
+
+load_env_from_dotenv()
+
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "db.sql"
 MEDIA_DIR = BASE_DIR / "media"
 ORIGINAL_DIR = MEDIA_DIR / "original"
 CONVERTED_DIR = MEDIA_DIR / "converted"
-USER_AGENT = "podrush/0.1"
+USER_AGENT = os.getenv("USER_AGENT", "podrush/0.1")
+MAX_SLUG_LEN = env_int("MAX_SLUG_LEN", 40)
 
 
 def get_db() -> sqlite3.Connection:
@@ -37,7 +50,8 @@ def init_db() -> None:
                 title TEXT,
                 description TEXT,
                 image_url TEXT,
-                last_checked TEXT
+                last_checked TEXT,
+                short_name TEXT
             );
             CREATE TABLE IF NOT EXISTS episodes (
                 id INTEGER PRIMARY KEY,
@@ -49,6 +63,7 @@ def init_db() -> None:
                 published_at TEXT,
                 duration_secs INTEGER,
                 local_path TEXT,
+                short_name TEXT,
                 UNIQUE(feed_id, guid)
             );
             """
@@ -58,6 +73,18 @@ def init_db() -> None:
 def ensure_media_dirs() -> None:
     ORIGINAL_DIR.mkdir(parents=True, exist_ok=True)
     CONVERTED_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def slugify(text: str, max_len: int = MAX_SLUG_LEN) -> str:
+    normalized = (
+        unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode()
+    )
+    lowered = normalized.lower()
+    cleaned = re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
+    if not cleaned:
+        cleaned = "item"
+    trimmed = cleaned[:max_len].rstrip("-")
+    return trimmed or "item"
 
 
 def parse_duration(raw: Any) -> int | None:
@@ -100,6 +127,71 @@ def audio_from_entry(entry: Any) -> str | None:
     if enclosures and "url" in enclosures[0]:
         return enclosures[0]["url"]
     return entry.get("link")
+
+
+def ensure_feed_short_name(feed: sqlite3.Row) -> str:
+    existing = feed["short_name"]
+    if existing:
+        return existing
+
+    base_title = feed["title"] or feed["url"] or "feed"
+    ai_name = ai_short_name("podcast", base_title)
+    name = slugify(ai_name or base_title, max_len=MAX_SLUG_LEN)
+    logger.info("Feed shorthand chosen: %s (ai=%s)", name, bool(ai_name))
+
+    with get_db() as conn:
+        conn.execute("UPDATE feeds SET short_name = ? WHERE id = ?", (name, feed["id"]))
+    return name
+
+
+def ensure_episode_short_name(feed: sqlite3.Row, episode: sqlite3.Row) -> str:
+    existing = episode["short_name"]
+    if existing:
+        return existing
+
+    feed_title = feed["title"] or feed["url"] or "podcast"
+    ep_title = episode["title"] or "episode"
+    ai_name = ai_short_name("podcast episode", ep_title, detail=feed_title)
+    name = slugify(ai_name or ep_title, max_len=MAX_SLUG_LEN)
+    logger.info(
+        "Episode shorthand chosen: %s (ai=%s) for feed=%s ep=%s",
+        name,
+        bool(ai_name),
+        feed.get("id") if isinstance(feed, dict) else feed["id"],
+        episode["id"],
+    )
+
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE episodes SET short_name = ? WHERE id = ?",
+            (name, episode["id"]),
+        )
+    return name
+
+
+def episode_date_stamp(episode: sqlite3.Row) -> str | None:
+    if isinstance(episode, dict):
+        published_at = episode.get("published_at")
+    else:
+        published_at = episode["published_at"]
+    if not published_at:
+        return None
+    try:
+        dt = datetime.fromisoformat(published_at)
+    except ValueError:
+        return None
+    return dt.strftime("%Y%m%d")
+
+
+def build_filename_base(feed: sqlite3.Row, episode: sqlite3.Row) -> str:
+    feed_slug = ensure_feed_short_name(feed)
+    ep_slug = ensure_episode_short_name(feed, episode)
+    date_part = episode_date_stamp(episode)
+    parts = [p for p in (date_part, feed_slug, ep_slug, f"id{episode['id']}") if p]
+    base = "-".join(parts)
+    if len(base) > 120:
+        base = base[:120].rstrip("-")
+    return base or f"episode-{episode['id']}"
 
 
 def refresh_feed_if_stale(feed: sqlite3.Row, max_age_hours: int = 6) -> None:
@@ -180,10 +272,22 @@ def refresh_feed(feed_id: int, url: str) -> None:
             )
 
 
-async def ensure_original_audio(episode: sqlite3.Row) -> Path:
-    target = ORIGINAL_DIR / f"episode_{episode['id']}.mp3"
+async def ensure_original_audio(feed: sqlite3.Row, episode: sqlite3.Row) -> Path:
+    existing_path = episode["local_path"]
+    if existing_path and Path(existing_path).exists():
+        return Path(existing_path)
+
+    base = build_filename_base(feed, episode)
+    logger.info("Using filename base for episode %s: %s", episode["id"], base)
+    target = ORIGINAL_DIR / f"{base}-orig.mp3"
     if target.exists():
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE episodes SET local_path = ? WHERE id = ?",
+                (str(target), episode["id"]),
+            )
         return target
+
     audio_url = episode["audio_url"]
     if not audio_url:
         raise HTTPException(status_code=400, detail="Missing audio URL for episode.")
@@ -316,12 +420,18 @@ async def convert_episode(episode_id: int, speed: str = Form(...)) -> HTMLRespon
         episode = conn.execute(
             "SELECT * FROM episodes WHERE id = ?", (episode_id,)
         ).fetchone()
-    if not episode:
-        raise HTTPException(status_code=404, detail="Episode not found")
+        if not episode:
+            raise HTTPException(status_code=404, detail="Episode not found")
+        feed = conn.execute(
+            "SELECT * FROM feeds WHERE id = ?", (episode["feed_id"],)
+        ).fetchone()
+    if not feed:
+        raise HTTPException(status_code=404, detail="Feed not found")
 
-    original_path = await ensure_original_audio(episode)
+    original_path = await ensure_original_audio(feed, episode)
+    base = build_filename_base(feed, episode)
     speed_label = format_speed(speed_value)
-    converted_path = CONVERTED_DIR / f"episode_{episode_id}_{speed_label}x.mp3"
+    converted_path = CONVERTED_DIR / f"{base}-{speed_label}x.mp3"
     convert_audio(original_path, converted_path, speed_value)
 
     html = (
