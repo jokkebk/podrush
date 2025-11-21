@@ -6,6 +6,32 @@
   <title>podrush</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    .htmx-indicator { display: none; }
+    .htmx-request.htmx-indicator { display: inline-block; }
+    .spinner {
+      width: 1em;
+      height: 1em;
+      border: 2px solid #ccc;
+      border-top-color: #444;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .convert-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 0.5rem;
+    }
+    .convert-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+  </style>
 </head>
 <body>
   <header class="container">

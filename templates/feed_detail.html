@@ -15,15 +15,25 @@
           <p><small>{{ ep['published_at'] or '' }}</small></p>
         </header>
         <p>{{ ep['description']|default('')|safe }}</p>
-        <div class="grid">
+        {% set ep_conversions = conversions.get(ep['id'], {}) %}
+        <div class="convert-grid">
           {% for speed in speeds %}
-            <button
-              hx-post="/episodes/{{ ep['id'] }}/convert"
-              hx-vals='{"speed": "{{ speed }}"}'
-              hx-target="this"
-              hx-swap="outerHTML">
-              {{ speed }}x
-            </button>
+            {% set existing = ep_conversions.get(speed.label) %}
+            <div class="convert-option">
+              {% if existing %}
+                <a class="contrast" href="{{ existing }}" download>{{ speed.label }}x</a>
+              {% else %}
+                <button
+                  hx-post="/episodes/{{ ep['id'] }}/convert"
+                  hx-vals='{"speed": "{{ speed.value }}"}'
+                  hx-target="closest .convert-option"
+                  hx-swap="innerHTML"
+                  hx-indicator="closest .convert-option .spinner">
+                  {{ speed.label }}x
+                </button>
+                <span class="spinner htmx-indicator" aria-hidden="true"></span>
+              {% endif %}
+            </div>
           {% endfor %}
         </div>
       </article>

@@ -6,6 +6,7 @@ import re
 import sqlite3
 import subprocess
 import unicodedata
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -332,6 +333,24 @@ def convert_audio(original: Path, target: Path, speed: float) -> None:
         ) from exc
 
 
+def list_converted_by_episode() -> dict[int, dict[str, str]]:
+    """
+    Return mapping of episode_id -> {speed_label: download_url} by scanning files.
+    """
+    conversions: dict[int, dict[str, str]] = defaultdict(dict)
+    if not CONVERTED_DIR.exists():
+        return conversions
+
+    for path in CONVERTED_DIR.glob("*.mp3"):
+        match = re.search(r"-id(?P<id>\d+)-(?P<speed>[0-9.]+)x$", path.stem)
+        if not match:
+            continue
+        episode_id = int(match.group("id"))
+        speed_label = format_speed(float(match.group("speed")))
+        conversions[episode_id][speed_label] = f"/media/converted/{path.name}"
+    return conversions
+
+
 app = FastAPI()
 
 ensure_media_dirs()
@@ -400,10 +419,19 @@ async def feed_detail(feed_id: int, request: Request) -> HTMLResponse:
             (feed_id,),
         ).fetchall()
 
-    speeds = [1.1, 1.25, 1.5, 1.75, 2.0]
+    speed_values = [1.1, 1.25, 1.5, 1.75, 2.0]
+    speeds = [{"value": s, "label": format_speed(s)} for s in speed_values]
+    conversions = list_converted_by_episode()
+
     return templates.TemplateResponse(
         "feed_detail.html",
-        {"request": request, "feed": feed, "episodes": episodes, "speeds": speeds},
+        {
+            "request": request,
+            "feed": feed,
+            "episodes": episodes,
+            "speeds": speeds,
+            "conversions": conversions,
+        },
     )
 
 
