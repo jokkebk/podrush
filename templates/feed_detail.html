@@ -21,17 +21,17 @@
             {% set existing = ep_conversions.get(speed.label) %}
             <div class="convert-option">
               {% if existing %}
-                <a class="contrast" href="{{ existing }}" download>{{ speed.label }}x</a>
+                <a class="contrast" href="{{ existing }}" download>Download {{ speed.label }}x</a>
               {% else %}
                 <button
                   hx-post="/episodes/{{ ep['id'] }}/convert"
                   hx-vals='{"speed": "{{ speed.value }}"}'
                   hx-target="closest .convert-option"
                   hx-swap="innerHTML"
-                  hx-indicator="closest .convert-option .spinner">
+                  hx-indicator="closest .convert-option .spinner-indicator">
                   {{ speed.label }}x
                 </button>
-                <span class="spinner htmx-indicator" aria-hidden="true"></span>
+                <span class="spinner spinner-indicator htmx-indicator" aria-hidden="true"></span>
               {% endif %}
             </div>
           {% endfor %}

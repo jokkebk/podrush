@@ -185,14 +185,9 @@ def episode_date_stamp(episode: sqlite3.Row) -> str | None:
 
 
 def build_filename_base(feed: sqlite3.Row, episode: sqlite3.Row) -> str:
-    feed_slug = ensure_feed_short_name(feed)
-    ep_slug = ensure_episode_short_name(feed, episode)
     date_part = episode_date_stamp(episode)
-    parts = [p for p in (date_part, feed_slug, ep_slug, f"id{episode['id']}") if p]
-    base = "-".join(parts)
-    if len(base) > 120:
-        base = base[:120].rstrip("-")
-    return base or f"episode-{episode['id']}"
+    parts = [p for p in (date_part, f"id{episode['id']}") if p]
+    return "-".join(parts) or f"id{episode['id']}"
 
 
 def refresh_feed_if_stale(feed: sqlite3.Row, max_age_hours: int = 6) -> None:
@@ -276,12 +271,22 @@ def refresh_feed(feed_id: int, url: str) -> None:
 async def ensure_original_audio(feed: sqlite3.Row, episode: sqlite3.Row) -> Path:
     existing_path = episode["local_path"]
     if existing_path and Path(existing_path).exists():
+        logger.info(
+            "Reusing existing original audio for episode %s: %s",
+            episode["id"],
+            existing_path,
+        )
         return Path(existing_path)
 
     base = build_filename_base(feed, episode)
     logger.info("Using filename base for episode %s: %s", episode["id"], base)
     target = ORIGINAL_DIR / f"{base}-orig.mp3"
     if target.exists():
+        logger.info(
+            "Found existing original audio on disk for episode %s: %s",
+            episode["id"],
+            target,
+        )
         with get_db() as conn:
             conn.execute(
                 "UPDATE episodes SET local_path = ? WHERE id = ?",
@@ -293,6 +298,12 @@ async def ensure_original_audio(feed: sqlite3.Row, episode: sqlite3.Row) -> Path
     if not audio_url:
         raise HTTPException(status_code=400, detail="Missing audio URL for episode.")
     try:
+        logger.info(
+            "Downloading original audio for episode %s from %s to %s",
+            episode["id"],
+            audio_url,
+            target,
+        )
         async with httpx.AsyncClient(
             follow_redirects=True, headers={"User-Agent": USER_AGENT}
         ) as client:
@@ -301,6 +312,9 @@ async def ensure_original_audio(feed: sqlite3.Row, episode: sqlite3.Row) -> Path
                 with target.open("wb") as f:
                     async for chunk in resp.aiter_bytes():
                         f.write(chunk)
+        logger.info(
+            "Download complete for episode %s, saved to %s", episode["id"], target
+        )
     except Exception as exc:  # pragma: no cover - network issues are runtime concerns
         if target.exists():
             target.unlink(missing_ok=True)
