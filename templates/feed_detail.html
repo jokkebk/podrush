@@ -11,10 +11,23 @@
     {% for ep in episodes %}
       <article>
         <header>
-          <h3>{{ ep['title'] or 'Untitled episode' }}</h3>
+          <h3>
+            {{ ep['title'] or 'Untitled episode' }}
+            {% set duration = format_duration(ep['duration_secs']) %}
+            {% if duration %}<small style="font-weight: normal;">({{ duration }})</small>{% endif %}
+          </h3>
           <p><small>{{ ep['published_at'] or '' }}</small></p>
         </header>
-        <p>{{ ep['description']|default('')|safe }}</p>
+        {% set desc = ep['description'] or '' %}
+        {% set needs_toggle = desc|length > 500 %}
+        <div
+          id="desc-{{ ep['id'] }}"
+          class="episode-description {% if needs_toggle %}collapsible collapsed{% endif %}">
+          {{ desc|safe }}
+        </div>
+        {% if needs_toggle %}
+          <button class="secondary outline toggle-desc" data-target="desc-{{ ep['id'] }}">Show more</button>
+        {% endif %}
         {% set ep_conversions = conversions.get(ep['id'], {}) %}
         <div class="convert-grid">
           {% for speed in speeds %}

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>podrush</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
@@ -33,6 +34,19 @@
       align-items: center;
       gap: 0.4rem;
     }
+    .episode-description {
+      white-space: pre-line;
+      margin-bottom: 0.75rem;
+    }
+    .episode-description.collapsible.collapsed {
+      display: -webkit-box;
+      -webkit-line-clamp: 5;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .toggle-desc {
+      margin-bottom: 1rem;
+    }
   </style>
 </head>
 <body>
@@ -48,5 +62,17 @@
   </header>
 
   {% block content %}{% endblock %}
+  <script>
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('.toggle-desc');
+      if (!button) return;
+      const targetId = button.getAttribute('data-target');
+      const target = document.getElementById(targetId);
+      if (!target) return;
+      target.classList.toggle('collapsed');
+      const expanded = !target.classList.contains('collapsed');
+      button.textContent = expanded ? 'Show less' : 'Show more';
+    });
+  </script>
 </body>
 </html>

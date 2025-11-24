@@ -14,7 +14,7 @@ from typing import Any
 import feedparser
 import httpx
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -111,6 +111,16 @@ def parse_duration(raw: Any) -> int | None:
 def format_speed(speed: float) -> str:
     text = f"{speed:.2f}"
     return text.rstrip("0").rstrip(".")
+
+
+def format_duration(seconds: int | None) -> str | None:
+    if not seconds or seconds < 0:
+        return None
+    minutes, _ = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    return f"{minutes}m"
 
 
 def parse_published(entry: Any) -> str | None:
@@ -375,6 +385,11 @@ app.mount("/media", StaticFiles(directory=BASE_DIR / "media"), name="media")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
+@app.get("/favicon.ico")
+async def favicon() -> FileResponse:
+    return FileResponse(BASE_DIR / "static" / "favicon.ico", media_type="image/x-icon")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root() -> RedirectResponse:
     return RedirectResponse(url="/feeds")
@@ -445,6 +460,7 @@ async def feed_detail(feed_id: int, request: Request) -> HTMLResponse:
             "episodes": episodes,
             "speeds": speeds,
             "conversions": conversions,
+            "format_duration": format_duration,
         },
     )
 
