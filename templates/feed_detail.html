@@ -39,9 +39,8 @@
                 <button
                   hx-post="/episodes/{{ ep['id'] }}/convert"
                   hx-vals='{"speed": "{{ speed.value }}"}'
-                  hx-target="closest .convert-option"
-                  hx-swap="innerHTML"
-                  hx-indicator="closest .convert-option .spinner-indicator">
+                  hx-swap="outerHTML"
+                  hx-indicator="next .spinner-indicator">
                   {{ speed.label }}x
                 </button>
                 <span class="spinner spinner-indicator htmx-indicator" aria-hidden="true"></span>

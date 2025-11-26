@@ -493,7 +493,7 @@ async def convert_episode(episode_id: int, speed: str = Form(...)) -> HTMLRespon
     convert_audio(original_path, converted_path, speed_value)
 
     html = (
-        f'<a href="/media/converted/{converted_path.name}" download>'
+        f'<a class="contrast" href="/media/converted/{converted_path.name}" download>'
         f"Download {speed_label}x"
         "</a>"
     )
