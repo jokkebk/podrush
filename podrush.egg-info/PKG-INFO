@@ -1,3 +1,17 @@
+Metadata-Version: 2.4
+Name: podrush
+Version: 0.1.0
+Summary: Minimal FastAPI app for preparing sped-up podcast audio for Garmin watches
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi
+Requires-Dist: uvicorn[standard]
+Requires-Dist: jinja2
+Requires-Dist: httpx
+Requires-Dist: feedparser
+Requires-Dist: python-multipart
+Requires-Dist: google-genai
+
 # Podrush
 
 Minimal FastAPI + HTMX web app to download podcast episodes and create sped-up MP3s for Garmin (or any device).
@@ -11,7 +25,7 @@ Minimal FastAPI + HTMX web app to download podcast episodes and create sped-up M
 ## Setup
 ```bash
 uv sync               # install dependencies
-uv run uvicorn app:app --reload
+uv run uvicorn podrush.app:app --reload
 ```
 Then open http://localhost:8000/feeds.
 
