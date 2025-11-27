@@ -195,8 +195,10 @@ def episode_date_stamp(episode: sqlite3.Row) -> str | None:
 
 
 def build_filename_base(feed: sqlite3.Row, episode: sqlite3.Row) -> str:
+    feed_name = ensure_feed_short_name(feed)
+    episode_name = ensure_episode_short_name(feed, episode)
     date_part = episode_date_stamp(episode)
-    parts = [p for p in (date_part, f"id{episode['id']}") if p]
+    parts = [p for p in (date_part, feed_name, episode_name, f"id{episode['id']}") if p]
     return "-".join(parts) or f"id{episode['id']}"
 
 
@@ -487,6 +489,15 @@ async def convert_episode(episode_id: int, speed: str = Form(...)) -> HTMLRespon
         raise HTTPException(status_code=404, detail="Feed not found")
 
     original_path = await ensure_original_audio(feed, episode)
+    
+    with get_db() as conn:
+        episode = conn.execute(
+            "SELECT * FROM episodes WHERE id = ?", (episode_id,)
+        ).fetchone()
+        feed = conn.execute(
+            "SELECT * FROM feeds WHERE id = ?", (episode["feed_id"],)
+        ).fetchone()
+    
     base = build_filename_base(feed, episode)
     speed_label = format_speed(speed_value)
     converted_path = CONVERTED_DIR / f"{base}-{speed_label}x.mp3"
