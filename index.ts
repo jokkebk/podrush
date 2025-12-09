@@ -1,19 +1,10 @@
-import { Database } from "bun:sqlite";
+import { db, refreshFeed, refreshFeedsIfStale, type FeedRow } from "./feedService";
 
-type Feed = {
-  id: number;
-  url: string;
-  title: string | null;
-  description: string | null;
-  last_checked: string | null;
-};
-
-const db = new Database("db.sqlite");
 const indexPage = Bun.file("./html/index.html");
 
 const selectFeeds = db.prepare(
   `
-  SELECT id, url, title, description, last_checked
+  SELECT id, url, title, description, image_url, last_checked
   FROM feeds
   ORDER BY id DESC
 `
@@ -21,10 +12,7 @@ const selectFeeds = db.prepare(
 
 const findFeedByUrl = db.prepare("SELECT id FROM feeds WHERE url = ?");
 
-const insertFeed = db.prepare(
-  // TODO: refresh feed metadata/episodes after inserting the URL
-  "INSERT INTO feeds (url, last_checked) VALUES (?, NULL)"
-);
+const insertFeed = db.prepare("INSERT INTO feeds (url, last_checked) VALUES (?, NULL)");
 
 const htmlResponse = (body: string, status = 200) =>
   new Response(body, {
@@ -35,7 +23,7 @@ const htmlResponse = (body: string, status = 200) =>
 const notFound = () =>
   new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain" } });
 
-function renderFeeds(feeds: Feed[]): string {
+function renderFeeds(feeds: FeedRow[]): string {
   if (!feeds.length) {
     return `
       <section class="grid" id="feeds-list">
@@ -66,8 +54,8 @@ function renderFeeds(feeds: Feed[]): string {
   return `<section class="grid" id="feeds-list">${cards}</section>`;
 }
 
-function getFeeds(): Feed[] {
-  return selectFeeds.all() as Feed[];
+function getFeeds(): FeedRow[] {
+  return selectFeeds.all() as FeedRow[];
 }
 
 async function addFeed(request: Request) {
@@ -79,8 +67,15 @@ async function addFeed(request: Request) {
   }
 
   const existing = findFeedByUrl.get(url);
+  let feedId = existing?.id as number | undefined;
   if (!existing) {
-    insertFeed.run(url);
+    const result = insertFeed.run(url);
+    feedId = Number(result.lastInsertRowid);
+  }
+
+  if (feedId) {
+    // Fetch metadata and episodes right after adding.
+    await refreshFeed({ id: feedId, url });
   }
 
   const feeds = getFeeds();
@@ -99,7 +94,9 @@ Bun.serve({
 
     if (request.method === "GET" && pathname === "/api/feeds") {
       const feeds = getFeeds();
-      return htmlResponse(renderFeeds(feeds));
+      await refreshFeedsIfStale(feeds);
+      const refreshed = getFeeds();
+      return htmlResponse(renderFeeds(refreshed));
     }
 
     if (request.method === "POST" && pathname === "/api/feeds") {
