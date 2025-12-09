@@ -27,7 +27,7 @@ logger = logging.getLogger("podrush")
 load_env_from_dotenv()
 
 BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "db.sql"
+DB_PATH = BASE_DIR / "db.sqlite"
 MEDIA_DIR = BASE_DIR / "media"
 ORIGINAL_DIR = MEDIA_DIR / "original"
 CONVERTED_DIR = MEDIA_DIR / "converted"

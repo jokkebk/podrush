@@ -22,7 +22,7 @@ Then open http://localhost:8000/feeds.
 - Original downloads are cached under `media/original/`; converted files live in `media/converted/`.
 
 ## Storage & filenames
-- SQLite database: `db.sql` (auto-created).
+- SQLite database: `db.sqlite` (auto-created).
 - Originals: `media/original/<date>-id<episode_id>-orig.mp3`.
 - Converted: `media/converted/<date>-id<episode_id>-<speed>x.mp3` (UI discovers existing conversions by scanning this folder).
 

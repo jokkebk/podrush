@@ -6,7 +6,7 @@ __pycache__/
 .DS_Store
 
 # Local data
-db.sql
+db.sqlite
 media/original/
 media/converted/
 .env
