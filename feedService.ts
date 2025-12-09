@@ -8,6 +8,7 @@ export type FeedRow = {
   description: string | null;
   image_url: string | null;
   last_checked: string | null;
+  short_name?: string | null;
 };
 
 type EpisodeUpsert = {
@@ -17,6 +18,7 @@ type EpisodeUpsert = {
   audio_url: string;
   published_at: string | null;
   duration_secs: number | null;
+  short_name?: string | null;
 };
 
 export const db = new Database("db.sqlite");
