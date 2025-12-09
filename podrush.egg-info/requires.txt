@@ -1,7 +1,0 @@
-fastapi
-uvicorn[standard]
-jinja2
-httpx
-feedparser
-python-multipart
-google-genai
