@@ -1,3 +1,4 @@
+import { serve } from "bun";
 import { mkdirSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { db, refreshFeed, refreshFeedsIfStale, type FeedRow } from "./feedService";
@@ -68,6 +69,17 @@ const htmlResponse = (body: string, status = 200) =>
 
 const notFound = () =>
   new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain" } });
+
+const serveHtmlPage = (file: Blob) =>
+  new Response(file, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+
+const logRequest = (request: Request) => {
+  const { pathname } = new URL(request.url);
+  log("Incoming request", { method: request.method, pathname });
+};
+
+const getRouteParam = (request: Request, key: string) =>
+  (request as Request & { params?: Record<string, string> }).params?.[key];
 
 type EpisodeRow = {
   id: number;
@@ -370,90 +382,105 @@ async function addFeed(request: Request) {
   return htmlResponse(renderFeeds(feeds));
 }
 
-Bun.serve({
-  async fetch(request) {
-    const { pathname } = new URL(request.url);
-    log("Incoming request", { method: request.method, pathname });
+const serveIndex = (request: Request) => {
+  logRequest(request);
+  return serveHtmlPage(indexPage);
+};
 
-    if (request.method === "GET" && pathname === "/") {
-      return new Response(indexPage, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
-    }
+const serveFeedHtml = (request: Request) => {
+  logRequest(request);
+  return serveHtmlPage(feedPage);
+};
 
-    const feedPageMatch = pathname.match(/^\/feed\/(\d+)$/);
-    if (request.method === "GET" && feedPageMatch) {
-      return new Response(feedPage, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
-    }
+const listFeeds = async (request: Request) => {
+  logRequest(request);
+  const feeds = getFeeds();
+  await refreshFeedsIfStale(feeds);
+  const refreshed = getFeeds();
+  return htmlResponse(renderFeeds(refreshed));
+};
 
-    if (request.method === "GET" && pathname === "/api/feeds") {
-      const feeds = getFeeds();
-      await refreshFeedsIfStale(feeds);
-      const refreshed = getFeeds();
-      return htmlResponse(renderFeeds(refreshed));
-    }
+const createFeed = (request: Request) => {
+  logRequest(request);
+  return addFeed(request);
+};
 
-    if (request.method === "POST" && pathname === "/api/feeds") {
-      return addFeed(request);
-    }
+const feedDetail = async (request: Request) => {
+  logRequest(request);
+  const feedId = Number(getRouteParam(request, "id"));
+  if (!Number.isFinite(feedId)) return notFound();
+  const data = await getFeedDetail(feedId);
+  if (!data) return notFound();
+  return htmlResponse(renderFeedDetail(data.feed, data.episodes, data.conversions));
+};
 
-    if (pathname.startsWith("/media/")) {
-      const file = Bun.file("." + pathname);
-      if (await file.exists()) {
-        const contentType = pathname.endsWith(".mp3") ? "audio/mpeg" : "application/octet-stream";
-        return new Response(file, { headers: { "Content-Type": contentType } });
-      }
-      return notFound();
-    }
+const convertEpisode = async (request: Request) => {
+  logRequest(request);
+  const episodeId = Number(getRouteParam(request, "id"));
+  if (!Number.isFinite(episodeId)) return htmlResponse("<span>Invalid episode</span>", 400);
 
-    const feedApiMatch = pathname.match(/^\/api\/feed\/(\d+)$/);
-    if (request.method === "GET" && feedApiMatch) {
-      const feedId = Number(feedApiMatch[1]);
-      const data = await getFeedDetail(feedId);
-      if (!data) return notFound();
-      return htmlResponse(renderFeedDetail(data.feed, data.episodes, data.conversions));
-    }
+  const speedForm = await request.formData();
+  const rawSpeed = speedForm.get("speed");
+  const speed = Number.parseFloat(typeof rawSpeed === "string" ? rawSpeed : "1.5");
+  if (!Number.isFinite(speed) || speed <= 0) {
+    return htmlResponse("<span>Invalid speed</span>", 400);
+  }
 
-    const convertMatch = pathname.match(/^\/api\/episodes\/(\d+)\/convert$/);
-    if (request.method === "POST" && convertMatch) {
-      const episodeId = Number(convertMatch[1]);
-      const speedForm = await request.formData();
-      const rawSpeed = speedForm.get("speed");
-      const speed = Number.parseFloat(typeof rawSpeed === "string" ? rawSpeed : "1.5");
-      if (!Number.isFinite(speed) || speed <= 0) {
-        return htmlResponse("<span>Invalid speed</span>", 400);
-      }
+  const episode = selectEpisodeById.get(episodeId) as EpisodeRow | undefined;
+  if (!episode) return notFound();
+  const feed = selectFeedById.get(episode.feed_id) as FeedRow | undefined;
+  if (!feed) return notFound();
 
-      const episode = selectEpisodeById.get(episodeId) as EpisodeRow | undefined;
-      if (!episode) return notFound();
-      const feed = selectFeedById.get(episode.feed_id) as FeedRow | undefined;
-      if (!feed) return notFound();
+  try {
+    const originalPath = await ensureOriginalAudio(feed, episode);
+    const base = await buildFilenameBase(feed, episode);
+    const speedLabel = formatSpeedLabel(speed);
+    const targetPath = join(CONVERTED_DIR, `${base}-${speedLabel}x.mp3`);
+    await convertAudio(originalPath, targetPath, speed);
+    const filename = targetPath.split(/[/\\\\]/).pop();
+    const html = `<a class="contrast" href="/media/converted/${filename}" download>Download ${speedLabel}x</a>`;
+    return htmlResponse(html);
+  } catch (err) {
+    console.error("Conversion failed", err);
+    return htmlResponse("<span>Conversion failed</span>", 500);
+  }
+};
 
-      try {
-        const originalPath = await ensureOriginalAudio(feed, episode);
-        const base = await buildFilenameBase(feed, episode);
-        const speedLabel = formatSpeedLabel(speed);
-        const targetPath = join(CONVERTED_DIR, `${base}-${speedLabel}x.mp3`);
-        await convertAudio(originalPath, targetPath, speed);
-        const filename = targetPath.split(/[/\\\\]/).pop();
-        const html = `<a class="contrast" href="/media/converted/${filename}" download>Download ${speedLabel}x</a>`;
-        return htmlResponse(html);
-      } catch (err) {
-        console.error("Conversion failed", err);
-        return htmlResponse("<span>Conversion failed</span>", 500);
-      }
-    }
+const serveMediaFile = async (request: Request) => {
+  logRequest(request);
+  const { pathname } = new URL(request.url);
+  const file = Bun.file("." + pathname);
+  if (await file.exists()) {
+    const contentType = pathname.endsWith(".mp3") ? "audio/mpeg" : "application/octet-stream";
+    return new Response(file, { headers: { "Content-Type": contentType } });
+  }
+  return notFound();
+};
 
-    if (pathname === "/favicon.ico") {
-      const file = Bun.file("./static/favicon.ico");
-      if (await file.exists()) {
-        return new Response(file, { headers: { "Content-Type": "image/x-icon" } });
-      }
-    }
+const serveFavicon = async (request: Request) => {
+  logRequest(request);
+  const file = Bun.file("./static/favicon.ico");
+  if (await file.exists()) {
+    return new Response(file, { headers: { "Content-Type": "image/x-icon" } });
+  }
+  return notFound();
+};
 
-    return notFound();
+const fallbackNotFound = (request: Request) => {
+  logRequest(request);
+  return notFound();
+};
+
+serve({
+  routes: {
+    "/": serveIndex,
+    "/feed/:id": serveFeedHtml,
+    "/api/feeds": { GET: listFeeds, POST: createFeed },
+    "/api/feed/:id": feedDetail,
+    "/api/episodes/:id/convert": { POST: convertEpisode },
+    "/media/*": serveMediaFile,
+    "/favicon.ico": serveFavicon,
+    "/*": fallbackNotFound,
   },
 });
 log("Server starting", {
