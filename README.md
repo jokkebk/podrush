@@ -1,19 +1,18 @@
 # Podrush
 
-Minimal FastAPI + HTMX web app to download podcast episodes and create sped-up MP3s for Garmin (or any device).
+Minimal Bun + TypeScript + HTMX web app to download podcast episodes and create sped-up MP3s for Garmin (or any device).
 
 ## Prerequisites
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) for dependency management (or use your own venv)
+- Bun
 - `ffmpeg` in PATH (used for audio conversion)
 - Optional: `.env` with `USER_AGENT`, `MAX_SLUG_LEN`, or `GOOGLE_API_KEY` (if you enable AI naming)
 
 ## Setup
 ```bash
-uv sync               # install dependencies
-uv run uvicorn app:app --reload
+bun install               # install dependencies
+bun --hot run index.ts
 ```
-Then open http://localhost:8000/feeds.
+Then open http://localhost:3000/feeds.
 
 ## Usage
 - Add an RSS feed URL.
