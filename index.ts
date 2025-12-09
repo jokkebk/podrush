@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { db, refreshFeed, refreshFeedsIfStale, type FeedRow } from "./feedService";
+import { generateGeminiShorthand } from "./gemini_shorthand";
 
 const indexPage = Bun.file("./html/index.html");
 const feedPage = Bun.file("./html/feed.html");
@@ -9,7 +10,11 @@ const MEDIA_DIR = "./media";
 const ORIGINAL_DIR = join(MEDIA_DIR, "original");
 const CONVERTED_DIR = join(MEDIA_DIR, "converted");
 const SPEEDS = [1.1, 1.25, 1.5];
-const USER_AGENT = process.env.USER_AGENT || "podrush/0.1";
+// Bun automatically loads .env/.env.local into Bun.env
+const env = Bun.env;
+const USER_AGENT = env.USER_AGENT || "podrush/0.1";
+const hasGeminiKey = Boolean(env.GEMINI_API_KEY || env.GOOGLE_API_KEY);
+const log = (...args: unknown[]) => console.info(new Date().toISOString(), "[podrush]", ...args);
 
 mkdirSync(ORIGINAL_DIR, { recursive: true });
 mkdirSync(CONVERTED_DIR, { recursive: true });
@@ -86,62 +91,18 @@ const slugify = (input: string, maxLen = 48) => {
   return normalized || "item";
 };
 
-const aiShortName = async (kind: string, title: string, detail?: string) => {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (!apiKey) return null;
-  const model = process.env.GEMINI_MODEL || "gemini-1.5-flash";
-  const promptLines = [
-    `Create a terse filesystem-safe nickname for a ${kind}.`,
-    "Goal: about 8-24 characters, human-style shorthand.",
-    "Acceptable separators: dash or underscore; no spaces otherwise.",
-    "Do NOT repeat the title verbatim; compress or abbreviate it instead.",
-    "Drop filler like podcast, episode, official, the.",
-    "Prefer 2-4 tokens; blend words if it keeps things short.",
-    "Return only the nickname as JSON.",
-    `Title: ${title}`,
-  ];
-  if (detail) promptLines.push(`Context: ${detail}`);
-  const body = {
-    contents: [{ parts: [{ text: promptLines.join("\n") }] }],
-    generationConfig: {
-      responseMimeType: "application/json",
-    },
-  };
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }
-    );
-    if (!response.ok) return null;
-    const data = await response.json();
-    const text =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      data?.candidates?.[0]?.content?.parts?.[0]?.data ||
-      "";
-    if (!text || typeof text !== "string") return null;
-    try {
-      const parsed = JSON.parse(text);
-      const candidate = parsed.shorthand || parsed.short;
-      if (candidate && typeof candidate === "string") return candidate.trim();
-    } catch {
-      return text.trim();
-    }
-  } catch {
-    return null;
-  }
-  return null;
-};
+const aiShortName = async (kind: string, title: string, detail?: string) =>
+  generateGeminiShorthand({ kind, title, detail, log });
 
 const ensureFeedShortName = async (feed: FeedRow): Promise<string> => {
   if (feed.short_name) return feed.short_name;
   const baseTitle = feed.title || feed.url || "podcast";
   const aiName = await aiShortName("podcast", baseTitle);
-  const name = slugify(aiName || baseTitle);
+  const maxLen = aiName ? 32 : 24;
+  const name = slugify(aiName || baseTitle, maxLen);
   updateFeedShortName.run(name, feed.id);
+  feed.short_name = name;
+  log("Feed shorthand set", { feedId: feed.id, name });
   return name;
 };
 
@@ -149,8 +110,11 @@ const ensureEpisodeShortName = async (feed: FeedRow, episode: EpisodeRow): Promi
   if (episode.short_name) return episode.short_name;
   const epTitle = episode.title || "episode";
   const aiName = await aiShortName("podcast episode", epTitle, feed.title || feed.url || undefined);
-  const name = slugify(aiName || epTitle);
+  const maxLen = aiName ? 32 : 24;
+  const name = slugify(aiName || epTitle, maxLen);
   updateEpisodeShortName.run(name, episode.id);
+  episode.short_name = name;
+  log("Episode shorthand set", { episodeId: episode.id, name });
   return name;
 };
 
@@ -257,6 +221,7 @@ const ensureOriginalAudio = async (feed: FeedRow, episode: EpisodeRow): Promise<
   if (episode.local_path) {
     const existing = Bun.file(episode.local_path);
     if (await existing.exists()) {
+      log("Reusing existing original audio", { episodeId: episode.id, path: episode.local_path });
       return episode.local_path;
     }
   }
@@ -266,9 +231,11 @@ const ensureOriginalAudio = async (feed: FeedRow, episode: EpisodeRow): Promise<
   const targetFile = Bun.file(targetPath);
   if (await targetFile.exists()) {
     updateEpisodeLocalPath.run(targetPath, episode.id);
+    log("Found downloaded audio on disk", { episodeId: episode.id, path: targetPath });
     return targetPath;
   }
 
+  log("Downloading episode audio", { episodeId: episode.id, url: episode.audio_url });
   const response = await fetch(episode.audio_url, {
     redirect: "follow",
     headers: { "User-Agent": USER_AGENT },
@@ -279,15 +246,18 @@ const ensureOriginalAudio = async (feed: FeedRow, episode: EpisodeRow): Promise<
   const buffer = await response.arrayBuffer();
   await Bun.write(targetPath, buffer);
   updateEpisodeLocalPath.run(targetPath, episode.id);
+  log("Downloaded audio saved", { episodeId: episode.id, path: targetPath });
   return targetPath;
 };
 
 const convertAudio = async (originalPath: string, targetPath: string, speed: number) => {
   const targetFile = Bun.file(targetPath);
   if (await targetFile.exists()) {
+    log("Conversion already exists", { targetPath, speed });
     return;
   }
 
+  log("Starting conversion", { originalPath, targetPath, speed });
   const proc = Bun.spawn(["ffmpeg", "-i", originalPath, "-filter:a", `atempo=${speed}`, targetPath], {
     stdout: "ignore",
     stderr: "pipe",
@@ -297,6 +267,7 @@ const convertAudio = async (originalPath: string, targetPath: string, speed: num
     const errorText = await new Response(proc.stderr).text();
     throw new Error(`ffmpeg failed: ${errorText}`);
   }
+  log("Conversion complete", { targetPath, speed });
 };
 
 function renderFeedDetail(
@@ -387,6 +358,7 @@ async function addFeed(request: Request) {
   if (!existing) {
     const result = insertFeed.run(url);
     feedId = Number(result.lastInsertRowid);
+    log("Feed added", { feedId, url });
   }
 
   if (feedId) {
@@ -401,6 +373,7 @@ async function addFeed(request: Request) {
 Bun.serve({
   async fetch(request) {
     const { pathname } = new URL(request.url);
+    log("Incoming request", { method: request.method, pathname });
 
     if (request.method === "GET" && pathname === "/") {
       return new Response(indexPage, {
@@ -482,4 +455,11 @@ Bun.serve({
 
     return notFound();
   },
+});
+log("Server starting", {
+  mediaDir: MEDIA_DIR,
+  converted: CONVERTED_DIR,
+  original: ORIGINAL_DIR,
+  geminiKeyPresent: hasGeminiKey,
+  geminiModel: env.GEMINI_MODEL || "gemini-2.5-flash",
 });

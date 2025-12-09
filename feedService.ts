@@ -23,6 +23,32 @@ type EpisodeUpsert = {
 
 export const db = new Database("db.sqlite");
 
+// Keep schema creation in TS too so Bun entrypoint mirrors Python init.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS feeds (
+    id INTEGER PRIMARY KEY,
+    url TEXT UNIQUE,
+    title TEXT,
+    description TEXT,
+    image_url TEXT,
+    last_checked TEXT,
+    short_name TEXT
+  );
+  CREATE TABLE IF NOT EXISTS episodes (
+    id INTEGER PRIMARY KEY,
+    feed_id INTEGER REFERENCES feeds(id),
+    guid TEXT,
+    title TEXT,
+    description TEXT,
+    audio_url TEXT,
+    published_at TEXT,
+    duration_secs INTEGER,
+    local_path TEXT,
+    short_name TEXT,
+    UNIQUE(feed_id, guid)
+  );
+`);
+
 const updateFeedStmt = db.prepare(
   `
   UPDATE feeds
