@@ -473,13 +473,13 @@ const fallbackNotFound = (request: Request) => {
 
 serve({
   routes: {
-    "/": serveIndex,
-    "/feed/:id": serveFeedHtml,
+    "/": { GET: serveIndex },
+    "/feed/:id": { GET: serveFeedHtml },
     "/api/feeds": { GET: listFeeds, POST: createFeed },
-    "/api/feed/:id": feedDetail,
+    "/api/feed/:id": { GET: feedDetail },
     "/api/episodes/:id/convert": { POST: convertEpisode },
-    "/media/*": serveMediaFile,
-    "/favicon.ico": serveFavicon,
+    "/media/*": { GET: serveMediaFile },
+    "/favicon.ico": { GET: serveFavicon },
     "/*": fallbackNotFound,
   },
 });
