@@ -148,10 +148,50 @@ const buildFilenameBase = async (feed: FeedRow, episode: EpisodeRow): Promise<st
   return parts.join("-");
 };
 
+const formatTimestamp = (value: string | null): string => {
+  if (!value) return "never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  const hours = date.getHours().toString().padStart(2, "0");
+  const minutes = date.getMinutes().toString().padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+};
+
+const renderFeedShortNameForm = (feed: FeedRow, message = ""): string => {
+  const shortName = feed.short_name || "";
+  const helper = message ? `<div class="short-name-message">${message}</div>` : "";
+  return `
+    <div class="short-name-block">
+      <small>Short name</small>
+      <form
+        class="short-name-form"
+        hx-post="/api/feeds/${feed.id}/short-name"
+        hx-target="closest .short-name-block"
+        hx-swap="outerHTML"
+      >
+        <input
+          type="text"
+          id="short-name-${feed.id}"
+          name="short_name"
+          value="${shortName}"
+          maxlength="32"
+          placeholder="short-name"
+          aria-label="Short name"
+        >
+        <button type="submit" class="secondary">Save</button>
+      </form>
+      ${helper}
+    </div>
+  `;
+};
+
 function renderFeeds(feeds: FeedRow[]): string {
   if (!feeds.length) {
     return `
-      <section class="grid" id="feeds-list">
+      <section class="grid feeds-grid" id="feeds-list">
         <p>No feeds yet. Add one to get started.</p>
       </section>
     `;
@@ -161,22 +201,30 @@ function renderFeeds(feeds: FeedRow[]): string {
     .map((feed) => {
       const title = feed.title || feed.url;
       const description = feed.description || "";
-      const lastChecked = feed.last_checked || "never";
+      const lastChecked = formatTimestamp(feed.last_checked);
+      const shortNameForm = renderFeedShortNameForm(feed);
       return `
-        <article>
+        <article class="feed-card">
           <header>
             <h3><a href="/feed/${feed.id}">${title}</a></h3>
-            <p>${description}</p>
+            ${shortNameForm}
+            <details class="feed-description">
+              <summary>
+                <span class="feed-description-preview">${description}</span>
+                <span class="feed-description-more">More</span>
+              </summary>
+              <div class="feed-description-full">${description}</div>
+            </details>
           </header>
           <footer>
-            <small>Last checked: ${lastChecked}</small>
+            <small title="${feed.last_checked || ""}">Last checked: ${lastChecked}</small>
           </footer>
         </article>
       `;
     })
     .join("");
 
-  return `<section class="grid" id="feeds-list">${cards}</section>`;
+  return `<section class="grid feeds-grid" id="feeds-list">${cards}</section>`;
 }
 
 function getFeeds(): FeedRow[] {
@@ -376,6 +424,10 @@ async function addFeed(request: Request) {
   if (feedId) {
     // Fetch metadata and episodes right after adding.
     await refreshFeed({ id: feedId, url });
+    const feed = selectFeedById.get(feedId) as FeedRow | undefined;
+    if (feed) {
+      await ensureFeedShortName(feed);
+    }
   }
 
   const feeds = getFeeds();
@@ -403,6 +455,27 @@ const listFeeds = async (request: Request) => {
 const createFeed = (request: Request) => {
   logRequest(request);
   return addFeed(request);
+};
+
+const updateFeedShortNameHandler = async (request: Request) => {
+  logRequest(request);
+  const feedId = Number(getRouteParam(request, "id"));
+  if (!Number.isFinite(feedId)) return htmlResponse("<span>Invalid feed</span>", 400);
+
+  const form = await request.formData();
+  const rawName = form.get("short_name");
+  const proposed = typeof rawName === "string" ? rawName.trim() : "";
+  const feed = selectFeedById.get(feedId) as FeedRow | undefined;
+  if (!feed) return notFound();
+
+  if (!proposed) {
+    return htmlResponse(renderFeedShortNameForm(feed, "Short name required"), 400);
+  }
+
+  const name = slugify(proposed, 32);
+  updateFeedShortName.run(name, feedId);
+  feed.short_name = name;
+  return htmlResponse(renderFeedShortNameForm(feed, "Saved"));
 };
 
 const feedDetail = async (request: Request) => {
@@ -476,6 +549,7 @@ serve({
     "/": { GET: serveIndex },
     "/feed/:id": { GET: serveFeedHtml },
     "/api/feeds": { GET: listFeeds, POST: createFeed },
+    "/api/feeds/:id/short-name": { POST: updateFeedShortNameHandler },
     "/api/feed/:id": { GET: feedDetail },
     "/api/episodes/:id/convert": { POST: convertEpisode },
     "/media/*": { GET: serveMediaFile },
