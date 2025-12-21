@@ -23,6 +23,25 @@
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      table {
+        font-size: 0.9rem;
+      }
+      .tag-list {
+        line-height: 1.35;
+      }
+      .tag-list span {
+        display: block;
+      }
+      .muted {
+        color: var(--pico-muted-color);
+      }
+      .inline-form {
+        display: inline-block;
+        margin-right: 0.5rem;
+      }
     </style>
   </head>
   <body>
@@ -39,28 +58,19 @@
     </header>
 
     <main class="container">
+      <hgroup>
+        <h1>Converted</h1>
+        <p>Review converted files and fix MP3 metadata using podcast data.</p>
+      </hgroup>
+
       <div
-        id="feed-detail"
-        hx-target="#feed-detail"
-        hx-swap="innerHTML"
+        id="converted-list"
+        hx-get="/api/converted"
+        hx-trigger="load"
+        hx-swap="outerHTML"
       >
-        Loading feed…
+        Loading converted files…
       </div>
     </main>
-
-    <script>
-      const detail = document.getElementById("feed-detail");
-      if (detail) {
-        const parts = window.location.pathname.split("/").filter(Boolean);
-        const feedId = parts[parts.length - 1];
-        if (feedId) {
-          detail.setAttribute("hx-get", `/api/feed/${feedId}`);
-          detail.setAttribute("hx-trigger", "load");
-          htmx.process(detail);
-        } else {
-          detail.textContent = "Missing feed id.";
-        }
-      }
-    </script>
   </body>
 </html>

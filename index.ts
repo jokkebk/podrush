@@ -1,11 +1,12 @@
 import { serve } from "bun";
-import { mkdirSync, readdirSync, statSync } from "fs";
+import { mkdirSync, readdirSync, renameSync, statSync } from "fs";
 import { join } from "path";
 import { db, refreshFeed, refreshFeedsIfStale, type FeedRow } from "./feedService";
 import { generateGeminiShorthand } from "./gemini_shorthand";
 
 const indexPage = Bun.file("./html/index.html");
 const feedPage = Bun.file("./html/feed.html");
+const convertedPage = Bun.file("./html/converted.html");
 
 const MEDIA_DIR = "./media";
 const ORIGINAL_DIR = join(MEDIA_DIR, "original");
@@ -50,6 +51,19 @@ const selectEpisodeById = db.prepare(
   SELECT id, feed_id, guid, title, description, audio_url, published_at, duration_secs, local_path, short_name
   FROM episodes
   WHERE id = ?
+`
+);
+
+const selectEpisodeWithFeed = db.prepare(
+  `
+  SELECT
+    episodes.id,
+    episodes.title AS episode_title,
+    episodes.published_at AS published_at,
+    feeds.title AS feed_title
+  FROM episodes
+  JOIN feeds ON feeds.id = episodes.feed_id
+  WHERE episodes.id = ?
 `
 );
 
@@ -261,6 +275,7 @@ const listConvertedByEpisode = (): Record<number, Record<string, string>> => {
     return mapping;
   }
   for (const name of entries) {
+    if (!name.toLowerCase().endsWith(".mp3")) continue;
     const fullPath = join(CONVERTED_DIR, name);
     try {
       if (!statSync(fullPath).isFile()) continue;
@@ -275,6 +290,247 @@ const listConvertedByEpisode = (): Record<number, Record<string, string>> => {
     mapping[episodeId][speedLabel] = `/media/converted/${name}`;
   }
   return mapping;
+};
+
+type ConvertedEntry = {
+  filename: string;
+  path: string;
+  episodeId?: number;
+  speedLabel?: string;
+  episodeTitle?: string | null;
+  feedTitle?: string | null;
+  publishedAt?: string | null;
+};
+
+const parseConvertedFilename = (name: string) => {
+  const match = name.match(/-id(\d+)-([0-9.]+)x\.mp3$/);
+  if (!match) return null;
+  return { episodeId: Number(match[1]), speed: Number(match[2]) };
+};
+
+const listConvertedFiles = (): ConvertedEntry[] => {
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(CONVERTED_DIR);
+  } catch {
+    return [];
+  }
+  const rows: ConvertedEntry[] = [];
+  for (const name of entries) {
+    const fullPath = join(CONVERTED_DIR, name);
+    try {
+      if (!statSync(fullPath).isFile()) continue;
+    } catch {
+      continue;
+    }
+    const parsed = parseConvertedFilename(name);
+    if (!parsed || !Number.isFinite(parsed.episodeId)) {
+      rows.push({ filename: name, path: fullPath });
+      continue;
+    }
+    const speedLabel = formatSpeedLabel(parsed.speed);
+    const details = selectEpisodeWithFeed.get(parsed.episodeId) as
+      | { episode_title: string | null; feed_title: string | null; published_at: string | null }
+      | undefined;
+    rows.push({
+      filename: name,
+      path: fullPath,
+      episodeId: parsed.episodeId,
+      speedLabel,
+      episodeTitle: details?.episode_title ?? null,
+      feedTitle: details?.feed_title ?? null,
+      publishedAt: details?.published_at ?? null,
+    });
+  }
+  return rows;
+};
+
+const runProcess = async (cmd: string[], label: string) => {
+  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+  const exitCode = await proc.exited;
+  const stdout = await new Response(proc.stdout).text();
+  const stderr = await new Response(proc.stderr).text();
+  if (exitCode !== 0) {
+    throw new Error(`${label} failed (${exitCode}): ${stderr || stdout}`);
+  }
+  return stdout;
+};
+
+const readId3Tags = async (filePath: string): Promise<Record<string, string>> => {
+  const output = await runProcess(
+    ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filePath],
+    "ffprobe"
+  );
+  const data = JSON.parse(output) as { format?: { tags?: Record<string, string> } };
+  const tags = data?.format?.tags || {};
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(tags)) {
+    if (!value) continue;
+    normalized[key.toLowerCase()] = value;
+  }
+  return normalized;
+};
+
+const formatId3Date = (value: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const year = date.getUTCFullYear();
+  const month = (date.getUTCMonth() + 1).toString().padStart(2, "0");
+  const day = date.getUTCDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const writeId3Tags = async (
+  filePath: string,
+  tags: {
+    title?: string | null;
+    artist?: string | null;
+    album?: string | null;
+    date?: string | null;
+    genre?: string | null;
+  }
+) => {
+  const tempPath = `${filePath}.tmp.mp3`;
+  const args = [
+    "ffmpeg",
+    "-y",
+    "-i",
+    filePath,
+    "-map",
+    "0",
+    "-c",
+    "copy",
+    "-id3v2_version",
+    "3",
+  ];
+  if (tags.title) args.push("-metadata", `title=${tags.title}`);
+  if (tags.artist) args.push("-metadata", `artist=${tags.artist}`);
+  if (tags.album) args.push("-metadata", `album=${tags.album}`);
+  if (tags.date) args.push("-metadata", `date=${tags.date}`);
+  if (tags.genre) args.push("-metadata", `genre=${tags.genre}`);
+  args.push(tempPath);
+  await runProcess(args, "ffmpeg");
+  renameSync(tempPath, filePath);
+};
+
+const renderTagList = (tags: Record<string, string>) => {
+  const title = tags.title || "";
+  const artist = tags.artist || tags.album_artist || "";
+  const album = tags.album || "";
+  const date = tags.date || tags.year || "";
+  const genre = tags.genre || "";
+  const lines = [
+    title && `<span><strong>Title:</strong> ${title}</span>`,
+    artist && `<span><strong>Artist:</strong> ${artist}</span>`,
+    album && `<span><strong>Album:</strong> ${album}</span>`,
+    date && `<span><strong>Date:</strong> ${date}</span>`,
+    genre && `<span><strong>Genre:</strong> ${genre}</span>`,
+  ].filter(Boolean);
+  if (!lines.length) return `<span class="muted">No tags</span>`;
+  return lines.join("");
+};
+
+const renderDbTagList = (entry: ConvertedEntry) => {
+  if (!entry.episodeId) return `<span class="muted">Unmatched file</span>`;
+  const title = entry.episodeTitle || "";
+  const artist = entry.feedTitle || "";
+  const album = entry.feedTitle || "";
+  const date = formatId3Date(entry.publishedAt) || "";
+  const genre = "Podcast";
+  const lines = [
+    title && `<span><strong>Title:</strong> ${title}</span>`,
+    artist && `<span><strong>Artist:</strong> ${artist}</span>`,
+    album && `<span><strong>Album:</strong> ${album}</span>`,
+    date && `<span><strong>Date:</strong> ${date}</span>`,
+    `<span><strong>Genre:</strong> ${genre}</span>`,
+  ].filter(Boolean);
+  if (!lines.length) return `<span class="muted">No data</span>`;
+  return lines.join("");
+};
+
+const renderConvertedRow = (entry: ConvertedEntry, tags: Record<string, string>, message = "") => {
+  const fileLink = `/media/converted/${entry.filename}`;
+  const speed = entry.speedLabel ? `${entry.speedLabel}x` : "Unknown";
+  const actions = entry.episodeId
+    ? `
+      <form
+        hx-post="/api/converted/retag"
+        hx-target="closest tr"
+        hx-swap="outerHTML"
+        class="inline-form"
+      >
+        <input type="hidden" name="filename" value="${entry.filename}">
+        <button type="submit" class="secondary">Copy from podcast data</button>
+      </form>
+      <form
+        hx-post="/api/converted/delete"
+        hx-target="closest tr"
+        hx-swap="outerHTML"
+        class="inline-form"
+        onsubmit="return confirm('Delete this converted file?');"
+      >
+        <input type="hidden" name="filename" value="${entry.filename}">
+        <button type="submit" class="contrast">Delete file</button>
+      </form>
+    `
+    : `<span class="muted">No match</span>`;
+  const status = message ? `<div class="muted">${message}</div>` : "";
+  return `
+    <tr>
+      <td>
+        <div><a href="${fileLink}" download>${entry.filename}</a></div>
+        <div class="muted">${speed}</div>
+      </td>
+      <td class="tag-list">${renderDbTagList(entry)}</td>
+      <td class="tag-list">${renderTagList(tags)}</td>
+      <td>
+        ${actions}
+        ${status}
+      </td>
+    </tr>
+  `;
+};
+
+const renderConvertedTable = async (entries: ConvertedEntry[], messageByFile = new Map<string, string>()) => {
+  if (!entries.length) {
+    return `
+      <section id="converted-list">
+        <p>No converted files found.</p>
+      </section>
+    `;
+  }
+  const rows = await Promise.all(
+    entries.map(async (entry) => {
+      let tags: Record<string, string> = {};
+      try {
+        tags = await readId3Tags(entry.path);
+      } catch (err) {
+        tags = {};
+      }
+      const message = messageByFile.get(entry.filename) || "";
+      return renderConvertedRow(entry, tags, message);
+    })
+  );
+  return `
+    <section id="converted-list">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Podcast / Episode</th>
+              <th>Tags</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
 };
 
 const ensureOriginalAudio = async (feed: FeedRow, episode: EpisodeRow): Promise<string> => {
@@ -318,10 +574,22 @@ const convertAudio = async (originalPath: string, targetPath: string, speed: num
   }
 
   log("Starting conversion", { originalPath, targetPath, speed });
-  const proc = Bun.spawn(["ffmpeg", "-i", originalPath, "-filter:a", `atempo=${speed}`, targetPath], {
-    stdout: "ignore",
-    stderr: "pipe",
-  });
+  const proc = Bun.spawn(
+    [
+      "ffmpeg",
+      "-i",
+      originalPath,
+      "-filter:a",
+      `atempo=${speed}`,
+      "-metadata",
+      "genre=Podcast",
+      targetPath,
+    ],
+    {
+      stdout: "ignore",
+      stderr: "pipe",
+    }
+  );
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
     const errorText = await new Response(proc.stderr).text();
@@ -444,6 +712,11 @@ const serveFeedHtml = (request: Request) => {
   return serveHtmlPage(feedPage);
 };
 
+const serveConvertedHtml = (request: Request) => {
+  logRequest(request);
+  return serveHtmlPage(convertedPage);
+};
+
 const listFeeds = async (request: Request) => {
   logRequest(request);
   const feeds = getFeeds();
@@ -485,6 +758,91 @@ const feedDetail = async (request: Request) => {
   const data = await getFeedDetail(feedId);
   if (!data) return notFound();
   return htmlResponse(renderFeedDetail(data.feed, data.episodes, data.conversions));
+};
+
+const listConverted = async (request: Request) => {
+  logRequest(request);
+  const entries = listConvertedFiles().filter((entry) =>
+    entry.filename.toLowerCase().endsWith(".mp3")
+  );
+  const html = await renderConvertedTable(entries);
+  return htmlResponse(html);
+};
+
+const retagConverted = async (request: Request) => {
+  logRequest(request);
+  const form = await request.formData();
+  const rawFilename = form.get("filename");
+  const filename = typeof rawFilename === "string" ? rawFilename : "";
+  if (!filename) return htmlResponse("<tr><td colspan='4'>Missing filename</td></tr>", 400);
+  if (filename.includes("/") || filename.includes("\\")) {
+    return htmlResponse("<tr><td colspan='4'>Invalid filename</td></tr>", 400);
+  }
+
+  const parsed = parseConvertedFilename(filename);
+  if (!parsed || !Number.isFinite(parsed.episodeId)) {
+    return htmlResponse("<tr><td colspan='4'>Unmatched filename</td></tr>", 400);
+  }
+
+  const entry = listConvertedFiles().find((item) => item.filename === filename);
+  if (!entry?.episodeId) {
+    return htmlResponse("<tr><td colspan='4'>File not found</td></tr>", 404);
+  }
+
+  const details = selectEpisodeWithFeed.get(entry.episodeId) as
+    | { episode_title: string | null; feed_title: string | null; published_at: string | null }
+    | undefined;
+  if (!details) {
+    return htmlResponse("<tr><td colspan='4'>Missing episode data</td></tr>", 404);
+  }
+
+  const tags = {
+    title: details.episode_title || undefined,
+    artist: details.feed_title || undefined,
+    album: details.feed_title || undefined,
+    date: formatId3Date(details.published_at) || undefined,
+    genre: "Podcast",
+  };
+
+  try {
+    await writeId3Tags(entry.path, tags);
+    const updatedTags = await readId3Tags(entry.path);
+    return htmlResponse(renderConvertedRow(entry, updatedTags, "Updated"));
+  } catch (err) {
+    console.error("Tag update failed", err);
+    const currentTags = await readId3Tags(entry.path).catch(() => ({}));
+    return htmlResponse(renderConvertedRow(entry, currentTags, "Failed to update"), 500);
+  }
+};
+
+const deleteConverted = async (request: Request) => {
+  logRequest(request);
+  const form = await request.formData();
+  const rawFilename = form.get("filename");
+  const filename = typeof rawFilename === "string" ? rawFilename : "";
+  if (!filename) return htmlResponse("<tr><td colspan='4'>Missing filename</td></tr>", 400);
+  if (filename.includes("/") || filename.includes("\\")) {
+    return htmlResponse("<tr><td colspan='4'>Invalid filename</td></tr>", 400);
+  }
+  if (!filename.toLowerCase().endsWith(".mp3")) {
+    return htmlResponse("<tr><td colspan='4'>Invalid file</td></tr>", 400);
+  }
+
+  const entry = listConvertedFiles().find((item) => item.filename === filename);
+  if (!entry) {
+    return htmlResponse("<tr><td colspan='4'>File not found</td></tr>", 404);
+  }
+
+  try {
+    const file = Bun.file(entry.path);
+    if (await file.exists()) {
+      await file.delete();
+    }
+    return htmlResponse("<tr><td colspan='4'>Deleted</td></tr>");
+  } catch (err) {
+    console.error("Delete failed", err);
+    return htmlResponse("<tr><td colspan='4'>Delete failed</td></tr>", 500);
+  }
 };
 
 const convertEpisode = async (request: Request) => {
@@ -548,9 +906,13 @@ serve({
   routes: {
     "/": { GET: serveIndex },
     "/feed/:id": { GET: serveFeedHtml },
+    "/converted": { GET: serveConvertedHtml },
     "/api/feeds": { GET: listFeeds, POST: createFeed },
     "/api/feeds/:id/short-name": { POST: updateFeedShortNameHandler },
     "/api/feed/:id": { GET: feedDetail },
+    "/api/converted": { GET: listConverted },
+    "/api/converted/retag": { POST: retagConverted },
+    "/api/converted/delete": { POST: deleteConverted },
     "/api/episodes/:id/convert": { POST: convertEpisode },
     "/media/*": { GET: serveMediaFile },
     "/favicon.ico": { GET: serveFavicon },
