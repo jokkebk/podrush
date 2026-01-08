@@ -1,6 +1,6 @@
 import { serve } from "bun";
 import { mkdirSync, readdirSync, renameSync, statSync } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 import { db, refreshFeed, refreshFeedsIfStale, type FeedRow } from "./feedService";
 import { generateGeminiShorthand } from "./gemini_shorthand";
 
@@ -689,6 +689,16 @@ async function addFeed(request: Request) {
     return htmlResponse("<p>Missing URL</p>", 400);
   }
 
+  // Validate URL protocol
+  try {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return htmlResponse("<p>Only HTTP and HTTPS URLs are supported</p>", 400);
+    }
+  } catch {
+    return htmlResponse("<p>Invalid URL format</p>", 400);
+  }
+
   const existing = findFeedByUrl.get(url);
   let feedId = existing?.id as number | undefined;
   if (!existing) {
@@ -888,7 +898,15 @@ const convertEpisode = async (request: Request) => {
 const serveMediaFile = async (request: Request) => {
   logRequest(request);
   const { pathname } = new URL(request.url);
-  const file = Bun.file("." + pathname);
+  const safePath = resolve("." + pathname);
+  const mediaRoot = resolve(MEDIA_DIR);
+
+  // Prevent path traversal
+  if (!safePath.startsWith(mediaRoot)) {
+    return notFound();
+  }
+
+  const file = Bun.file(safePath);
   if (await file.exists()) {
     const contentType = pathname.endsWith(".mp3") ? "audio/mpeg" : "application/octet-stream";
     return new Response(file, { headers: { "Content-Type": contentType } });
