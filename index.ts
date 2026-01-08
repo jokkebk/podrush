@@ -29,6 +29,11 @@ const escapeHtml = (str: string): string =>
 mkdirSync(ORIGINAL_DIR, { recursive: true });
 mkdirSync(CONVERTED_DIR, { recursive: true });
 
+// Race condition guards
+const conversionsInProgress = new Set<string>();
+const feedShortNameInProgress = new Set<number>();
+const episodeShortNameInProgress = new Set<number>();
+
 const selectFeeds = db.prepare(
   `
   SELECT id, url, title, description, image_url, last_checked, short_name
@@ -130,26 +135,48 @@ const aiShortName = async (kind: string, title: string, detail?: string) =>
 
 const ensureFeedShortName = async (feed: FeedRow): Promise<string> => {
   if (feed.short_name) return feed.short_name;
-  const baseTitle = feed.title || feed.url || "podcast";
-  const aiName = await aiShortName("podcast", baseTitle);
-  const maxLen = aiName ? 32 : 24;
-  const name = slugify(aiName || baseTitle, maxLen);
-  updateFeedShortName.run(name, feed.id);
-  feed.short_name = name;
-  log("Feed shorthand set", { feedId: feed.id, name });
-  return name;
+  if (feedShortNameInProgress.has(feed.id)) {
+    const baseTitle = feed.title || feed.url || "podcast";
+    const maxLen = 24;
+    return slugify(baseTitle, maxLen);  // Return fallback while in progress
+  }
+
+  feedShortNameInProgress.add(feed.id);
+  try {
+    const baseTitle = feed.title || feed.url || "podcast";
+    const aiName = await aiShortName("podcast", baseTitle);
+    const maxLen = aiName ? 32 : 24;
+    const name = slugify(aiName || baseTitle, maxLen);
+    updateFeedShortName.run(name, feed.id);
+    feed.short_name = name;
+    log("Feed shorthand set", { feedId: feed.id, name });
+    return name;
+  } finally {
+    feedShortNameInProgress.delete(feed.id);
+  }
 };
 
 const ensureEpisodeShortName = async (feed: FeedRow, episode: EpisodeRow): Promise<string> => {
   if (episode.short_name) return episode.short_name;
-  const epTitle = episode.title || "episode";
-  const aiName = await aiShortName("podcast episode", epTitle, feed.title || feed.url || undefined);
-  const maxLen = aiName ? 32 : 24;
-  const name = slugify(aiName || epTitle, maxLen);
-  updateEpisodeShortName.run(name, episode.id);
-  episode.short_name = name;
-  log("Episode shorthand set", { episodeId: episode.id, name });
-  return name;
+  if (episodeShortNameInProgress.has(episode.id)) {
+    const epTitle = episode.title || "episode";
+    const maxLen = 24;
+    return slugify(epTitle, maxLen);  // Return fallback while in progress
+  }
+
+  episodeShortNameInProgress.add(episode.id);
+  try {
+    const epTitle = episode.title || "episode";
+    const aiName = await aiShortName("podcast episode", epTitle, feed.title || feed.url || undefined);
+    const maxLen = aiName ? 32 : 24;
+    const name = slugify(aiName || epTitle, maxLen);
+    updateEpisodeShortName.run(name, episode.id);
+    episode.short_name = name;
+    log("Episode shorthand set", { episodeId: episode.id, name });
+    return name;
+  } finally {
+    episodeShortNameInProgress.delete(episode.id);
+  }
 };
 
 const episodeDateStamp = (episode: EpisodeRow): string | null => {
@@ -581,29 +608,40 @@ const convertAudio = async (originalPath: string, targetPath: string, speed: num
     return;
   }
 
-  log("Starting conversion", { originalPath, targetPath, speed });
-  const proc = Bun.spawn(
-    [
-      "ffmpeg",
-      "-i",
-      originalPath,
-      "-filter:a",
-      `atempo=${speed}`,
-      "-metadata",
-      "genre=Podcast",
-      targetPath,
-    ],
-    {
-      stdout: "ignore",
-      stderr: "pipe",
-    }
-  );
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    const errorText = await new Response(proc.stderr).text();
-    throw new Error(`ffmpeg failed: ${errorText}`);
+  // Check if conversion is in progress
+  if (conversionsInProgress.has(targetPath)) {
+    log("Conversion already in progress", { targetPath, speed });
+    return;
   }
-  log("Conversion complete", { targetPath, speed });
+
+  conversionsInProgress.add(targetPath);
+  try {
+    log("Starting conversion", { originalPath, targetPath, speed });
+    const proc = Bun.spawn(
+      [
+        "ffmpeg",
+        "-i",
+        originalPath,
+        "-filter:a",
+        `atempo=${speed}`,
+        "-metadata",
+        "genre=Podcast",
+        targetPath,
+      ],
+      {
+        stdout: "ignore",
+        stderr: "pipe",
+      }
+    );
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      const errorText = await new Response(proc.stderr).text();
+      throw new Error(`ffmpeg failed: ${errorText}`);
+    }
+    log("Conversion complete", { targetPath, speed });
+  } finally {
+    conversionsInProgress.delete(targetPath);
+  }
 };
 
 function renderFeedDetail(
