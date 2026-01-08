@@ -18,6 +18,14 @@ const USER_AGENT = env.USER_AGENT || "podrush/0.1";
 const hasGeminiKey = Boolean(env.GEMINI_API_KEY || env.GOOGLE_API_KEY);
 const log = (...args: unknown[]) => console.info(new Date().toISOString(), "[podrush]", ...args);
 
+const escapeHtml = (str: string): string =>
+  str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
 mkdirSync(ORIGINAL_DIR, { recursive: true });
 mkdirSync(CONVERTED_DIR, { recursive: true });
 
@@ -175,8 +183,8 @@ const formatTimestamp = (value: string | null): string => {
 };
 
 const renderFeedShortNameForm = (feed: FeedRow, message = ""): string => {
-  const shortName = feed.short_name || "";
-  const helper = message ? `<div class="short-name-message">${message}</div>` : "";
+  const shortName = escapeHtml(feed.short_name || "");
+  const helper = message ? `<div class="short-name-message">${escapeHtml(message)}</div>` : "";
   return `
     <div class="short-name-block">
       <small>Short name</small>
@@ -213,8 +221,8 @@ function renderFeeds(feeds: FeedRow[]): string {
 
   const cards = feeds
     .map((feed) => {
-      const title = feed.title || feed.url;
-      const description = feed.description || "";
+      const title = escapeHtml(feed.title || feed.url);
+      const description = escapeHtml(feed.description || "");
       const lastChecked = formatTimestamp(feed.last_checked);
       const shortNameForm = renderFeedShortNameForm(feed);
       return `
@@ -231,7 +239,7 @@ function renderFeeds(feeds: FeedRow[]): string {
             </details>
           </header>
           <footer>
-            <small title="${feed.last_checked || ""}">Last checked: ${lastChecked}</small>
+            <small title="${escapeHtml(feed.last_checked || "")}">Last checked: ${lastChecked}</small>
           </footer>
         </article>
       `;
@@ -415,11 +423,11 @@ const writeId3Tags = async (
 };
 
 const renderTagList = (tags: Record<string, string>) => {
-  const title = tags.title || "";
-  const artist = tags.artist || tags.album_artist || "";
-  const album = tags.album || "";
-  const date = tags.date || tags.year || "";
-  const genre = tags.genre || "";
+  const title = escapeHtml(tags.title || "");
+  const artist = escapeHtml(tags.artist || tags.album_artist || "");
+  const album = escapeHtml(tags.album || "");
+  const date = escapeHtml(tags.date || tags.year || "");
+  const genre = escapeHtml(tags.genre || "");
   const lines = [
     title && `<span><strong>Title:</strong> ${title}</span>`,
     artist && `<span><strong>Artist:</strong> ${artist}</span>`,
@@ -433,10 +441,10 @@ const renderTagList = (tags: Record<string, string>) => {
 
 const renderDbTagList = (entry: ConvertedEntry) => {
   if (!entry.episodeId) return `<span class="muted">Unmatched file</span>`;
-  const title = entry.episodeTitle || "";
-  const artist = entry.feedTitle || "";
-  const album = entry.feedTitle || "";
-  const date = formatId3Date(entry.publishedAt) || "";
+  const title = escapeHtml(entry.episodeTitle || "");
+  const artist = escapeHtml(entry.feedTitle || "");
+  const album = escapeHtml(entry.feedTitle || "");
+  const date = escapeHtml(formatId3Date(entry.publishedAt) || "");
   const genre = "Podcast";
   const lines = [
     title && `<span><strong>Title:</strong> ${title}</span>`,
@@ -450,8 +458,8 @@ const renderDbTagList = (entry: ConvertedEntry) => {
 };
 
 const renderConvertedRow = (entry: ConvertedEntry, tags: Record<string, string>, message = "") => {
-  const fileLink = `/media/converted/${entry.filename}`;
-  const speed = entry.speedLabel ? `${entry.speedLabel}x` : "Unknown";
+  const fileLink = `/media/converted/${escapeHtml(entry.filename)}`;
+  const speed = entry.speedLabel ? `${escapeHtml(entry.speedLabel)}x` : "Unknown";
   const actions = entry.episodeId
     ? `
       <form
@@ -460,7 +468,7 @@ const renderConvertedRow = (entry: ConvertedEntry, tags: Record<string, string>,
         hx-swap="outerHTML"
         class="inline-form"
       >
-        <input type="hidden" name="filename" value="${entry.filename}">
+        <input type="hidden" name="filename" value="${escapeHtml(entry.filename)}">
         <button type="submit" class="secondary">Copy from podcast data</button>
       </form>
       <form
@@ -470,16 +478,16 @@ const renderConvertedRow = (entry: ConvertedEntry, tags: Record<string, string>,
         class="inline-form"
         onsubmit="return confirm('Delete this converted file?');"
       >
-        <input type="hidden" name="filename" value="${entry.filename}">
+        <input type="hidden" name="filename" value="${escapeHtml(entry.filename)}">
         <button type="submit" class="contrast">Delete file</button>
       </form>
     `
     : `<span class="muted">No match</span>`;
-  const status = message ? `<div class="muted">${message}</div>` : "";
+  const status = message ? `<div class="muted">${escapeHtml(message)}</div>` : "";
   return `
     <tr>
       <td>
-        <div><a href="${fileLink}" download>${entry.filename}</a></div>
+        <div><a href="${fileLink}" download>${escapeHtml(entry.filename)}</a></div>
         <div class="muted">${speed}</div>
       </td>
       <td class="tag-list">${renderDbTagList(entry)}</td>
@@ -606,8 +614,8 @@ function renderFeedDetail(
   const header = `
     <header>
       <p><a href="/">&larr; Back to feeds</a></p>
-      <h1>${feed.title || feed.url}</h1>
-      <p>${feed.description || ""}</p>
+      <h1>${escapeHtml(feed.title || feed.url)}</h1>
+      <p>${escapeHtml(feed.description || "")}</p>
     </header>
   `;
 
@@ -618,13 +626,13 @@ function renderFeedDetail(
   const list = episodes
     .map((ep) => {
       const duration = formatDuration(ep.duration_secs);
-      const published = ep.published_at || "";
+      const published = escapeHtml(ep.published_at || "");
       const epConversions = conversions[ep.id] || {};
       const buttons = SPEEDS.map((speed) => {
         const label = formatSpeedLabel(speed);
         const existing = epConversions[label];
         if (existing) {
-          return `<a class="contrast" href="${existing}" download>Download ${label}x</a>`;
+          return `<a class="contrast" href="${escapeHtml(existing)}" download>Download ${label}x</a>`;
         }
         return `
           <div>
@@ -641,10 +649,10 @@ function renderFeedDetail(
       return `
         <article>
           <header>
-            <h3>${ep.title || "Untitled episode"}${duration ? ` <small>(${duration})</small>` : ""}</h3>
+            <h3>${escapeHtml(ep.title || "Untitled episode")}${duration ? ` <small>(${duration})</small>` : ""}</h3>
             <p><small>${published}</small></p>
           </header>
-          <div>${ep.description || ""}</div>
+          <div>${escapeHtml(ep.description || "")}</div>
           <div class="grid">${buttons}</div>
         </article>
       `;
