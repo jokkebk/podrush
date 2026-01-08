@@ -1,5 +1,5 @@
 import { serve } from "bun";
-import { mkdirSync, readdirSync, renameSync, statSync } from "fs";
+import { mkdirSync, readdirSync, renameSync, statSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
 import { db, refreshFeed, refreshFeedsIfStale, type FeedRow } from "./feedService";
 import { generateGeminiShorthand } from "./gemini_shorthand";
@@ -12,6 +12,7 @@ const MEDIA_DIR = "./media";
 const ORIGINAL_DIR = join(MEDIA_DIR, "original");
 const CONVERTED_DIR = join(MEDIA_DIR, "converted");
 const SPEEDS = [1.1, 1.25, 1.5];
+const MAX_AUDIO_SIZE = 500 * 1024 * 1024; // 500 MB
 // Bun automatically loads .env/.env.local into Bun.env
 const env = Bun.env;
 const USER_AGENT = env.USER_AGENT || "podrush/0.1";
@@ -25,6 +26,20 @@ const escapeHtml = (str: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+
+export const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = 30000
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+};
 
 mkdirSync(ORIGINAL_DIR, { recursive: true });
 mkdirSync(CONVERTED_DIR, { recursive: true });
@@ -445,8 +460,19 @@ const writeId3Tags = async (
   if (tags.date) args.push("-metadata", `date=${tags.date}`);
   if (tags.genre) args.push("-metadata", `genre=${tags.genre}`);
   args.push(tempPath);
-  await runProcess(args, "ffmpeg");
-  renameSync(tempPath, filePath);
+
+  try {
+    await runProcess(args, "ffmpeg");
+    renameSync(tempPath, filePath);
+  } catch (err) {
+    // Clean up temp file on error
+    try {
+      unlinkSync(tempPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw err;
+  }
 };
 
 const renderTagList = (tags: Record<string, string>) => {
@@ -587,13 +613,24 @@ const ensureOriginalAudio = async (feed: FeedRow, episode: EpisodeRow): Promise<
   }
 
   log("Downloading episode audio", { episodeId: episode.id, url: episode.audio_url });
-  const response = await fetch(episode.audio_url, {
-    redirect: "follow",
-    headers: { "User-Agent": USER_AGENT },
-  });
+  const response = await fetchWithTimeout(
+    episode.audio_url,
+    {
+      redirect: "follow",
+      headers: { "User-Agent": USER_AGENT },
+    },
+    60000  // 60 second timeout for audio downloads
+  );
   if (!response.ok) {
     throw new Error(`Failed to download audio (${response.status})`);
   }
+
+  // Check download size limit
+  const contentLength = parseInt(response.headers.get("content-length") || "0", 10);
+  if (contentLength > MAX_AUDIO_SIZE) {
+    throw new Error(`Audio file too large: ${contentLength} bytes (max ${MAX_AUDIO_SIZE})`);
+  }
+
   const buffer = await response.arrayBuffer();
   await Bun.write(targetPath, buffer);
   updateEpisodeLocalPath.run(targetPath, episode.id);
