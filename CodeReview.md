@@ -248,7 +248,7 @@ const writeId3Tags = async (filePath: string, tags: { ... }) => {
 };
 ```
 
-- [ ] Complete
+- [x] Complete
 
 ---
 
@@ -276,21 +276,75 @@ Note: This only works when the server provides Content-Length. For extra safety,
 
 ---
 
-## Testing
+## Testing ✅ COMPLETE
 
-After completing all fixes, manually test:
+### Automated Test Suite
 
-1. **Path traversal:** Try accessing `http://localhost:3000/media/../index.ts` - should return 404
-2. **XSS:** Add a feed with `<script>alert('xss')</script>` in the title (mock RSS) - should show escaped text
-3. **URL validation:** Try adding a feed with `file:///etc/passwd` - should be rejected
-4. **Conversion race:** Rapidly click the same convert button twice - should not error
-5. **Timeouts:** Test with a slow/unreachable feed URL - should timeout gracefully
+All security fixes now have comprehensive automated tests using Bun's test runner:
+
+**Run tests:** `bun test`
+
+**Test Coverage:**
+- 49 passing tests across 3 files
+- 30 unit tests (security.test.ts)
+- 18 integration tests (security.integration.test.ts)
+- 1 existing test (feedService.test.ts)
+
+**What's Tested:**
+1. ✅ **Path traversal:** Unit + integration tests verify 404 on `../` attempts
+2. ✅ **XSS:** Unit tests for escapeHtml + integration tests with malicious RSS feeds
+3. ✅ **URL validation:** Unit + integration tests for protocol filtering
+4. ✅ **Race conditions:** Unit tests verify Set-based guards work correctly
+5. ✅ **HTTP timeouts:** Unit + integration tests for timeout behavior
+6. ✅ **Download size limits:** Unit tests verify 500MB enforcement
+7. ✅ **Input validation:** Integration tests for empty/malformed inputs
+
+**Test Fixtures:**
+- `test/fixtures/malicious_xss.xml` - RSS feed with XSS payloads
+- `test/fixtures/valid_feed.xml` - Legitimate test feed
+
+See `SECURITY_TEST_RESULTS.md` for detailed manual test results from initial validation.
+
+---
+
+## Summary - All Items Complete ✅
+
+**Status:** All 8 high-priority security fixes have been implemented, tested, and committed.
+
+**Commits:**
+1. `3186dfd` - XSS Prevention: escape all RSS content in HTML output
+2. `a2ff9bc` - Input validation: path traversal and URL protocol checks
+3. `fcf020d` - Race condition guards for conversions and AI generation
+4. `27768e4` - Reliability improvements: timeouts, cleanup, size limits
+5. `5a6e319` - Mark all security fixes as complete in CodeReview.md
+6. `95439f6` - Add comprehensive security test suite
+7. `7898d38` - Add security test results documentation
+
+**Implementation Details:**
+
+| Fix | File | Implementation | Test Coverage |
+|-----|------|----------------|---------------|
+| Path Traversal | index.ts:888-905 | `resolve()` + `startsWith()` validation | 5 integration + 5 unit tests |
+| XSS Prevention | index.ts:22-28 | `escapeHtml()` applied to all render functions | 8 unit + 2 integration tests |
+| URL Validation | index.ts:692-700 | Protocol whitelist (HTTP/HTTPS only) | 8 unit + 7 integration tests |
+| Conversion Race | index.ts:33, 617-658 | `conversionsInProgress` Set guard | 2 unit tests |
+| Gemini Race | index.ts:34-35, 136-180 | `feedShortNameInProgress` & `episodeShortNameInProgress` Set guards | 2 unit tests |
+| HTTP Timeouts | index.ts:30-41, feedService.ts:248-252 | `fetchWithTimeout()` with AbortController (30s/60s) | 3 unit + 1 integration tests |
+| Temp Cleanup | index.ts:463-474 | try/finally with `unlinkSync()` in writeId3Tags | Code review verified |
+| Size Limits | index.ts:15, 628-632 | MAX_AUDIO_SIZE = 500MB check | 4 unit tests |
+
+**Exports Added for Testing:**
+- `export const escapeHtml` - HTML entity escaping function
+- `export const fetchWithTimeout` - HTTP timeout utility
+- `import.meta.main` check wraps `serve()` to prevent test conflicts
+
+**Security Posture:** Application now has robust protections against XSS, path traversal, protocol abuse, race conditions, resource exhaustion, and hanging connections.
 
 ---
 
 ## Notes
 
-- Import `resolve` from `"path"` if not already imported
-- Import `unlinkSync` from `"fs"` if not already imported
-- The `fetchWithTimeout` helper can be placed near other utility functions at the top of the file
-- Constants like `MAX_AUDIO_SIZE` should go with other constants near the top
+- Import `resolve` from `"path"` ✅ Done
+- Import `unlinkSync` from `"fs"` ✅ Done
+- The `fetchWithTimeout` helper placed near other utility functions ✅ Done
+- Constants like `MAX_AUDIO_SIZE` added with other constants ✅ Done
