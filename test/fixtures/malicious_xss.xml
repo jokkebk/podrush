@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>&lt;script&gt;alert('XSS in title')&lt;/script&gt;Test Podcast</title>
+    <description>&lt;img src=x onerror="alert('XSS in description')"&gt;This is a malicious feed</description>
+    <link>http://example.com</link>
+    <item>
+      <title>&lt;script&gt;alert('Episode XSS')&lt;/script&gt;Episode 1</title>
+      <description>&lt;b onmouseover="alert('XSS')"&gt;Episode description with XSS&lt;/b&gt;</description>
+      <enclosure url="http://example.com/test.mp3" type="audio/mpeg" length="1000"/>
+      <pubDate>Mon, 06 Jan 2025 10:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Valid Test Podcast</title>
+    <description>A legitimate test feed</description>
+    <link>http://example.com</link>
+    <item>
+      <title>Episode 1</title>
+      <description>Normal episode description</description>
+      <enclosure url="http://example.com/episode1.mp3" type="audio/mpeg" length="5000000"/>
+      <pubDate>Mon, 06 Jan 2025 10:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

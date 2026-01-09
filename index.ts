@@ -19,7 +19,7 @@ const USER_AGENT = env.USER_AGENT || "podrush/0.1";
 const hasGeminiKey = Boolean(env.GEMINI_API_KEY || env.GOOGLE_API_KEY);
 const log = (...args: unknown[]) => console.info(new Date().toISOString(), "[podrush]", ...args);
 
-const escapeHtml = (str: string): string =>
+export const escapeHtml = (str: string): string =>
   str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -1003,27 +1003,30 @@ const fallbackNotFound = (request: Request) => {
   return notFound();
 };
 
-serve({
-  routes: {
-    "/": { GET: serveIndex },
-    "/feed/:id": { GET: serveFeedHtml },
-    "/converted": { GET: serveConvertedHtml },
-    "/api/feeds": { GET: listFeeds, POST: createFeed },
-    "/api/feeds/:id/short-name": { POST: updateFeedShortNameHandler },
-    "/api/feed/:id": { GET: feedDetail },
-    "/api/converted": { GET: listConverted },
-    "/api/converted/retag": { POST: retagConverted },
-    "/api/converted/delete": { POST: deleteConverted },
-    "/api/episodes/:id/convert": { POST: convertEpisode },
-    "/media/*": { GET: serveMediaFile },
-    "/favicon.ico": { GET: serveFavicon },
-    "/*": fallbackNotFound,
-  },
-});
-log("Server starting", {
-  mediaDir: MEDIA_DIR,
-  converted: CONVERTED_DIR,
-  original: ORIGINAL_DIR,
-  geminiKeyPresent: hasGeminiKey,
-  geminiModel: env.GEMINI_MODEL || "gemini-2.5-flash",
-});
+// Only start the server if not in test mode
+if (import.meta.main) {
+  serve({
+    routes: {
+      "/": { GET: serveIndex },
+      "/feed/:id": { GET: serveFeedHtml },
+      "/converted": { GET: serveConvertedHtml },
+      "/api/feeds": { GET: listFeeds, POST: createFeed },
+      "/api/feeds/:id/short-name": { POST: updateFeedShortNameHandler },
+      "/api/feed/:id": { GET: feedDetail },
+      "/api/converted": { GET: listConverted },
+      "/api/converted/retag": { POST: retagConverted },
+      "/api/converted/delete": { POST: deleteConverted },
+      "/api/episodes/:id/convert": { POST: convertEpisode },
+      "/media/*": { GET: serveMediaFile },
+      "/favicon.ico": { GET: serveFavicon },
+      "/*": fallbackNotFound,
+    },
+  });
+  log("Server starting", {
+    mediaDir: MEDIA_DIR,
+    converted: CONVERTED_DIR,
+    original: ORIGINAL_DIR,
+    geminiKeyPresent: hasGeminiKey,
+    geminiModel: env.GEMINI_MODEL || "gemini-2.5-flash",
+  });
+}
