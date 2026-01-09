@@ -303,8 +303,6 @@ All security fixes now have comprehensive automated tests using Bun's test runne
 - `test/fixtures/malicious_xss.xml` - RSS feed with XSS payloads
 - `test/fixtures/valid_feed.xml` - Legitimate test feed
 
-See `SECURITY_TEST_RESULTS.md` for detailed manual test results from initial validation.
-
 ---
 
 ## Summary - All Items Complete ✅
