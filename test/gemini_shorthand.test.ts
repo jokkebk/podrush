@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { GoogleGenAI } from "@google/genai";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { parseShorthandText, shorthandSchema } from "./gemini_shorthand";
+import { parseShorthandText, shorthandSchema } from "../gemini_shorthand";
 
 const apiKey = Bun.env.GEMINI_API_KEY || Bun.env.GOOGLE_API_KEY;
 const model = Bun.env.GEMINI_MODEL || "gemini-2.5-flash";

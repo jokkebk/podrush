@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { resolve } from "path";
-import { escapeHtml, fetchWithTimeout } from "./index";
+import { escapeHtml, fetchWithTimeout } from "../index";
 
 describe("Security Unit Tests", () => {
   describe("escapeHtml", () => {
