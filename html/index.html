@@ -82,6 +82,16 @@
       .feed-card footer {
         margin-top: auto;
       }
+      .ep-description {
+        font-size: 0.9em;
+        color: var(--pico-muted-color);
+      }
+      .ep-description p:first-child { margin-top: 0; }
+      .ep-description p:last-child { margin-bottom: 0; }
+      .ep-description-toggle {
+        font-size: 0.85em;
+      }
+      .ep-description a { color: var(--pico-primary); }
       .short-name-block small {
         display: block;
         color: var(--pico-muted-color);
@@ -171,9 +181,24 @@
           }
         });
       };
+      const updateEpToggles = (root = document) => {
+        root.querySelectorAll(".ep-description:not(.checked)").forEach((el) => {
+          el.classList.add("checked");
+          const toggle = el.nextElementSibling;
+          if (el.scrollHeight <= el.clientHeight + 1) {
+            el.style.maxHeight = "";
+            el.style.overflow = "";
+            el.style.maskImage = "";
+            el.style.webkitMaskImage = "";
+            if (toggle && toggle.classList.contains("ep-description-toggle")) toggle.style.display = "none";
+          }
+        });
+      };
       updateDescriptionToggles();
+      updateEpToggles();
       document.body.addEventListener("htmx:afterSwap", (event) => {
         updateDescriptionToggles(event.target);
+        updateEpToggles(event.target);
       });
     </script>
   </body>

@@ -27,6 +27,28 @@ export const escapeHtml = (str: string): string =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
+const plainText = (html: string): string =>
+  html.replace(/<[^>]*>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ").trim();
+
+const sanitizeHtml = (html: string): string =>
+  html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+    .replace(/<\/?(iframe|object|embed|form|input|button|select|textarea|base|meta|link)\b[^>]*>/gi, "")
+    .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/(href|src)\s*=\s*"javascript:[^"]*"/gi, '')
+    .replace(/(href|src)\s*=\s*'javascript:[^']*'/gi, '');
+
+const descriptionDetails = (html: string): string => {
+  if (!html) return "";
+  const safe = sanitizeHtml(html);
+  return `
+    <div class="ep-description" style="max-height:200px;overflow:hidden;-webkit-mask-image:linear-gradient(black 60%,transparent);mask-image:linear-gradient(black 60%,transparent)">
+      ${safe}
+    </div>
+    <a href="#" class="ep-description-toggle" onclick="var d=this.previousElementSibling;if(d.style.maxHeight){d.style.maxHeight='';d.style.overflow='';d.style.maskImage='';d.style.webkitMaskImage='';this.textContent='Show less'}else{d.style.maxHeight='200px';d.style.overflow='hidden';d.style.maskImage='linear-gradient(black 60%,transparent)';d.style.webkitMaskImage='linear-gradient(black 60%,transparent)';this.textContent='Show more'};return false">Show more</a>`;
+};
+
 export const fetchWithTimeout = async (
   url: string,
   options: RequestInit = {},
@@ -264,7 +286,8 @@ function renderFeeds(feeds: FeedRow[]): string {
   const cards = feeds
     .map((feed) => {
       const title = escapeHtml(feed.title || feed.url);
-      const description = escapeHtml(feed.description || "");
+      const descHtml = feed.description || "";
+      const description = escapeHtml(plainText(descHtml).slice(0, 200));
       const lastChecked = formatTimestamp(feed.last_checked);
       const shortNameForm = renderFeedShortNameForm(feed);
       return `
@@ -277,7 +300,7 @@ function renderFeeds(feeds: FeedRow[]): string {
                 <span class="feed-description-preview">${description}</span>
                 <span class="feed-description-more">More</span>
               </summary>
-              <div class="feed-description-full">${description}</div>
+              <div class="feed-description-full">${sanitizeHtml(descHtml)}</div>
             </details>
           </header>
           <footer>
@@ -692,7 +715,7 @@ function renderFeedDetail(
     <header>
       <p><a href="/">&larr; Back to feeds</a></p>
       <h1>${escapeHtml(feed.title || feed.url)}</h1>
-      <p>${escapeHtml(feed.description || "")}</p>
+      <div>${sanitizeHtml(feed.description || "")}</div>
     </header>
   `;
 
@@ -729,7 +752,7 @@ function renderFeedDetail(
             <h3>${escapeHtml(ep.title || "Untitled episode")}${duration ? ` <small>(${duration})</small>` : ""}</h3>
             <p><small>${published}</small></p>
           </header>
-          <div>${escapeHtml(ep.description || "")}</div>
+          ${descriptionDetails(ep.description || "")}
           <div class="grid">${buttons}</div>
         </article>
       `;
