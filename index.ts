@@ -451,6 +451,8 @@ const writeId3Tags = async (
     "0",
     "-c",
     "copy",
+    "-map_metadata",
+    "-1",
     "-id3v2_version",
     "3",
   ];
@@ -961,6 +963,13 @@ const convertEpisode = async (request: Request) => {
     const speedLabel = formatSpeedLabel(speed);
     const targetPath = join(CONVERTED_DIR, `${base}-${speedLabel}x.mp3`);
     await convertAudio(originalPath, targetPath, speed);
+    await writeId3Tags(targetPath, {
+      title: episode.title || undefined,
+      artist: feed.title || undefined,
+      album: feed.title || undefined,
+      date: formatId3Date(episode.published_at) || undefined,
+      genre: "Podcast",
+    });
     const filename = targetPath.split(/[/\\\\]/).pop();
     const html = `<a class="contrast" href="/media/converted/${filename}" download>Download ${speedLabel}x</a>`;
     return htmlResponse(html);
