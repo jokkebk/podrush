@@ -21,7 +21,8 @@ type EpisodeUpsert = {
   short_name?: string | null;
 };
 
-export const db = new Database("db.sqlite");
+const DB_PATH = process.env.PODRUSH_DB_PATH || process.env.DB_PATH || "db.sqlite";
+export const db = new Database(DB_PATH);
 
 // Keep schema creation in TS too so Bun entrypoint mirrors Python init.
 db.exec(`

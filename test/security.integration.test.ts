@@ -1,15 +1,39 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { spawn } from "bun";
 import { join } from "path";
-import { mkdirSync } from "fs";
+import { existsSync, mkdirSync, rmSync } from "fs";
 
 // Test server details
 const TEST_PORT = 13001;
 const BASE_URL = `http://localhost:${TEST_PORT}`;
+const TEST_DB_PATH = "db.test.sqlite";
 
 // We'll start a test fixture server to serve our malicious RSS feeds
 let fixtureServer: ReturnType<typeof spawn> | null = null;
 let appServer: ReturnType<typeof spawn> | null = null;
+
+const waitForServer = async (url: string, timeoutMs = 10000) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const response = await fetch(url);
+      if (response.status) return;
+    } catch {
+      // Ignore until the server is ready.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`Timed out waiting for server at ${url}`);
+};
+
+const cleanupDbFiles = (path: string) => {
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const candidate = `${path}${suffix}`;
+    if (existsSync(candidate)) {
+      rmSync(candidate);
+    }
+  }
+};
 
 describe("Security Integration Tests", () => {
   beforeAll(async () => {
@@ -41,14 +65,17 @@ describe("Security Integration Tests", () => {
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Start the main app server
-    // Note: In a real setup, you'd want to start the server programmatically
-    // For now, we'll assume the server is running on the default port 3000
+    appServer = spawn(["bun", "run", "index.ts"], {
+      env: { ...process.env, PODRUSH_DB_PATH: TEST_DB_PATH },
+    });
+    await waitForServer("http://localhost:3000/api/feeds");
   });
 
   afterAll(async () => {
     fixtureServer?.kill();
     appServer?.kill();
     await new Promise((resolve) => setTimeout(resolve, 500));
+    cleanupDbFiles(TEST_DB_PATH);
   });
 
   describe("Path Traversal Protection", () => {
