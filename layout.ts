@@ -1,4 +1,4 @@
-<!doctype html>
+const pageShell = (main: string): string => `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
@@ -24,7 +24,12 @@
     </header>
 
     <main class="container app-main">
-      <hgroup>
+${main}
+    </main>
+  </body>
+</html>`;
+
+const feedsContent = `      <hgroup>
         <h1>Feeds</h1>
         <p>Add podcasts and keep them fresh automatically.</p>
       </hgroup>
@@ -52,8 +57,39 @@
         hx-trigger="load"
         hx-swap="outerHTML"
       >
-        Loading feeds…
-      </div>
-    </main>
-  </body>
-</html>
+        Loading feeds\u2026
+      </div>`;
+
+const feedDetailContent = `      <div
+        id="feed-detail"
+        data-feed-detail
+        hx-target="#feed-detail"
+        hx-swap="innerHTML"
+      >
+        Loading feed\u2026
+      </div>`;
+
+const convertedContent = `      <hgroup>
+        <h1>Converted</h1>
+        <p>Review converted files and fix MP3 metadata using podcast data.</p>
+      </hgroup>
+
+      <div
+        id="converted-list"
+        hx-get="/api/converted"
+        hx-trigger="load"
+        hx-swap="outerHTML"
+      >
+        Loading converted files\u2026
+      </div>`;
+
+const htmlHeaders = { "Content-Type": "text/html; charset=utf-8" };
+
+export const serveFeedsPage = () =>
+  new Response(pageShell(feedsContent), { headers: htmlHeaders });
+
+export const serveFeedDetailPage = () =>
+  new Response(pageShell(feedDetailContent), { headers: htmlHeaders });
+
+export const serveConvertedPage = () =>
+  new Response(pageShell(convertedContent), { headers: htmlHeaders });

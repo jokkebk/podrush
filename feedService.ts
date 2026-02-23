@@ -246,7 +246,7 @@ const normalizeParsedFeed = (format: string, feed: any) => {
 export async function refreshFeed(feed: FeedRow | { id: number; url: string }) {
   let response: Response;
   try {
-    const { fetchWithTimeout } = await import("./index");
+    const { fetchWithTimeout } = await import("./lib");
     response = await fetchWithTimeout(feed.url, {
       redirect: "follow",
       headers: { "User-Agent": USER_AGENT },
