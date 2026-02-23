@@ -4,128 +4,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>podrush</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="/static/app.css">
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-    <style>
-      .htmx-indicator { display: none; }
-      .htmx-request.htmx-indicator,
-      .htmx-request .htmx-indicator { display: inline-block; }
-      .spinner {
-        width: 1em;
-        height: 1em;
-        border: 2px solid #ccc;
-        border-top-color: #444;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-        vertical-align: middle;
-        margin-left: 0.35rem;
-      }
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
-      .feeds-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 1rem;
-        align-items: stretch;
-      }
-      .feed-card {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-      }
-      .feed-card h3 a {
-        font-size: 1rem;
-        line-height: 1.3;
-      }
-      .feed-card header {
-        display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
-        flex: 1 1 auto;
-      }
-      .feed-description {
-        margin: 0;
-      }
-      .feed-description summary {
-        list-style: none;
-        cursor: pointer;
-      }
-      .feed-description summary::-webkit-details-marker {
-        display: none;
-      }
-      .feed-description-preview {
-        display: -webkit-box;
-        -webkit-line-clamp: 14;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-      .feed-description-more {
-        color: var(--pico-muted-color);
-        font-size: 0.85em;
-        margin-left: 0.35rem;
-        white-space: nowrap;
-      }
-      .feed-description.no-more summary {
-        display: none;
-      }
-      .feed-description.no-more .feed-description-more {
-        display: none;
-      }
-      .feed-description[open] .feed-description-preview,
-      .feed-description[open] .feed-description-more {
-        display: none;
-      }
-      .feed-description-full {
-        margin-top: 0.35rem;
-      }
-      .feed-card footer {
-        margin-top: auto;
-      }
-      .ep-description {
-        font-size: 0.9em;
-        color: var(--pico-muted-color);
-      }
-      .ep-description p:first-child { margin-top: 0; }
-      .ep-description p:last-child { margin-bottom: 0; }
-      .ep-description-toggle {
-        font-size: 0.85em;
-      }
-      .ep-description a { color: var(--pico-primary); }
-      .short-name-block small {
-        display: block;
-        color: var(--pico-muted-color);
-        margin-top: 0.35rem;
-        margin-bottom: 0.25rem;
-      }
-      .short-name-form {
-        display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
-        align-items: stretch;
-        width: 100%;
-        flex-wrap: nowrap;
-      }
-      .short-name-form input[type="text"] {
-        margin-bottom: 0;
-        flex: 1 1 auto;
-        min-width: 0;
-      }
-      .short-name-form button {
-        padding: 0.35rem 0.75rem;
-        font-size: 0.85em;
-        align-self: flex-start;
-      }
-      .short-name-message {
-        color: var(--pico-muted-color);
-        font-size: 0.85em;
-        margin-top: 0.25rem;
-      }
-    </style>
+    <script src="/static/app.js" defer></script>
   </head>
   <body>
-    <header class="container">
-      <nav>
+    <header class="container app-header">
+      <nav class="app-nav">
         <ul>
           <li><strong><a href="/">podrush</a></strong></li>
         </ul>
@@ -136,7 +21,7 @@
       </nav>
     </header>
 
-    <main class="container">
+    <main class="container app-main">
       <hgroup>
         <h1>Feeds</h1>
         <p>Add podcasts and keep them fresh automatically.</p>
@@ -165,41 +50,5 @@
         Loading feeds…
       </div>
     </main>
-
-    <script>
-      const updateDescriptionToggles = (root = document) => {
-        const items = root.querySelectorAll(".feed-description");
-        items.forEach((details) => {
-          const preview = details.querySelector(".feed-description-preview");
-          if (!preview) return;
-          const hasMore = preview.scrollHeight > preview.clientHeight + 1;
-          if (hasMore) {
-            details.classList.remove("no-more");
-          } else {
-            details.classList.add("no-more");
-            details.open = true;
-          }
-        });
-      };
-      const updateEpToggles = (root = document) => {
-        root.querySelectorAll(".ep-description:not(.checked)").forEach((el) => {
-          el.classList.add("checked");
-          const toggle = el.nextElementSibling;
-          if (el.scrollHeight <= el.clientHeight + 1) {
-            el.style.maxHeight = "";
-            el.style.overflow = "";
-            el.style.maskImage = "";
-            el.style.webkitMaskImage = "";
-            if (toggle && toggle.classList.contains("ep-description-toggle")) toggle.style.display = "none";
-          }
-        });
-      };
-      updateDescriptionToggles();
-      updateEpToggles();
-      document.body.addEventListener("htmx:afterSwap", (event) => {
-        updateDescriptionToggles(event.target);
-        updateEpToggles(event.target);
-      });
-    </script>
   </body>
 </html>

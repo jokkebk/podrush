@@ -43,10 +43,10 @@ const descriptionDetails = (html: string): string => {
   if (!html) return "";
   const safe = sanitizeHtml(html);
   return `
-    <div class="ep-description" style="max-height:200px;overflow:hidden;-webkit-mask-image:linear-gradient(black 60%,transparent);mask-image:linear-gradient(black 60%,transparent)">
+    <div class="ep-description is-collapsed" data-ep-description>
       ${safe}
     </div>
-    <a href="#" class="ep-description-toggle" onclick="var d=this.previousElementSibling;if(d.style.maxHeight){d.style.maxHeight='';d.style.overflow='';d.style.maskImage='';d.style.webkitMaskImage='';this.textContent='Show less'}else{d.style.maxHeight='200px';d.style.overflow='hidden';d.style.maskImage='linear-gradient(black 60%,transparent)';d.style.webkitMaskImage='linear-gradient(black 60%,transparent)';this.textContent='Show more'};return false">Show more</a>`;
+    <button type="button" class="ep-description-toggle" data-ep-toggle hidden>Show more</button>`;
 };
 
 export const fetchWithTimeout = async (
@@ -554,7 +554,7 @@ const renderConvertedRow = (entry: ConvertedEntry, tags: Record<string, string>,
         hx-target="closest tr"
         hx-swap="outerHTML"
         class="inline-form"
-        onsubmit="return confirm('Delete this converted file?');"
+        data-confirm="Delete this converted file?"
       >
         <input type="hidden" name="filename" value="${escapeHtml(entry.filename)}">
         <button type="submit" class="contrast">Delete file</button>
@@ -1021,6 +1021,34 @@ const serveMediaFile = async (request: Request) => {
   return notFound();
 };
 
+const contentTypeForPath = (pathname: string): string => {
+  if (pathname.endsWith(".css")) return "text/css; charset=utf-8";
+  if (pathname.endsWith(".js")) return "application/javascript; charset=utf-8";
+  if (pathname.endsWith(".svg")) return "image/svg+xml";
+  if (pathname.endsWith(".png")) return "image/png";
+  if (pathname.endsWith(".jpg") || pathname.endsWith(".jpeg")) return "image/jpeg";
+  if (pathname.endsWith(".webp")) return "image/webp";
+  if (pathname.endsWith(".ico")) return "image/x-icon";
+  if (pathname.endsWith(".json")) return "application/json; charset=utf-8";
+  return "application/octet-stream";
+};
+
+const serveStaticFile = async (request: Request) => {
+  logRequest(request);
+  const { pathname } = new URL(request.url);
+  const safePath = resolve("." + pathname);
+  const staticRoot = resolve("./static");
+  if (safePath !== staticRoot && !safePath.startsWith(staticRoot + "/")) {
+    return notFound();
+  }
+
+  const file = Bun.file(safePath);
+  if (!(await file.exists())) return notFound();
+  return new Response(file, {
+    headers: { "Content-Type": contentTypeForPath(pathname.toLowerCase()) },
+  });
+};
+
 const serveFavicon = async (request: Request) => {
   logRequest(request);
   const file = Bun.file("./static/favicon.ico");
@@ -1049,6 +1077,7 @@ if (import.meta.main) {
       "/api/converted/retag": { POST: retagConverted },
       "/api/converted/delete": { POST: deleteConverted },
       "/api/episodes/:id/convert": { POST: convertEpisode },
+      "/static/*": { GET: serveStaticFile },
       "/media/*": { GET: serveMediaFile },
       "/favicon.ico": { GET: serveFavicon },
       "/*": fallbackNotFound,

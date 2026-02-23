@@ -4,49 +4,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>podrush</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="/static/app.css">
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-    <style>
-      .htmx-indicator { display: none; }
-      .htmx-request.htmx-indicator,
-      .htmx-request .htmx-indicator { display: inline-block; }
-      .spinner {
-        width: 1em;
-        height: 1em;
-        border: 2px solid #ccc;
-        border-top-color: #444;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-        vertical-align: middle;
-        margin-left: 0.35rem;
-      }
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
-      .table-wrap {
-        overflow-x: auto;
-      }
-      table {
-        font-size: 0.9rem;
-      }
-      .tag-list {
-        line-height: 1.35;
-      }
-      .tag-list span {
-        display: block;
-      }
-      .muted {
-        color: var(--pico-muted-color);
-      }
-      .inline-form {
-        display: inline-block;
-        margin-right: 0.5rem;
-      }
-    </style>
+    <script src="/static/app.js" defer></script>
   </head>
   <body>
-    <header class="container">
-      <nav>
+    <header class="container app-header">
+      <nav class="app-nav">
         <ul>
           <li><strong><a href="/">podrush</a></strong></li>
         </ul>
@@ -57,7 +21,7 @@
       </nav>
     </header>
 
-    <main class="container">
+    <main class="container app-main">
       <hgroup>
         <h1>Converted</h1>
         <p>Review converted files and fix MP3 metadata using podcast data.</p>
