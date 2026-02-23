@@ -13,6 +13,7 @@ const ORIGINAL_DIR = join(MEDIA_DIR, "original");
 const CONVERTED_DIR = join(MEDIA_DIR, "converted");
 const SPEEDS = [1.1, 1.25, 1.5];
 const MAX_AUDIO_SIZE = 500 * 1024 * 1024; // 500 MB
+const EPISODES_PER_PAGE = 20;
 // Bun automatically loads .env/.env.local into Bun.env
 const env = Bun.env;
 const USER_AGENT = env.USER_AGENT || "podrush/0.1";
@@ -36,6 +37,7 @@ const sanitizeHtml = (html: string): string =>
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
     .replace(/<\/?(iframe|object|embed|form|input|button|select|textarea|base|meta|link)\b[^>]*>/gi, "")
     .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(/(href|src)\s*=\s*"javascript:[^"]*"/gi, '')
     .replace(/(href|src)\s*=\s*'javascript:[^']*'/gi, '');
 
@@ -294,7 +296,6 @@ function renderFeeds(feeds: FeedRow[]): string {
         <article class="feed-card">
           <header>
             <h3><a href="/feed/${feed.id}">${title}</a></h3>
-            ${shortNameForm}
             <details class="feed-description">
               <summary>
                 <span class="feed-description-preview">${description}</span>
@@ -304,6 +305,7 @@ function renderFeeds(feeds: FeedRow[]): string {
             </details>
           </header>
           <footer>
+            ${shortNameForm}
             <small title="${escapeHtml(feed.last_checked || "")}">Last checked: ${lastChecked}</small>
           </footer>
         </article>
@@ -535,9 +537,26 @@ const renderDbTagList = (entry: ConvertedEntry) => {
   return lines.join("");
 };
 
+const tagsMatch = (entry: ConvertedEntry, fileTags: Record<string, string>): boolean => {
+  if (!entry.episodeId) return true;
+  const dbTitle = (entry.episodeTitle || "").trim();
+  const dbArtist = (entry.feedTitle || "").trim();
+  const dbDate = formatId3Date(entry.publishedAt) || "";
+  const fileTitle = (fileTags.title || "").trim();
+  const fileArtist = (fileTags.artist || fileTags.album_artist || "").trim();
+  const fileDate = (fileTags.date || fileTags.year || "").trim();
+  return dbTitle === fileTitle && dbArtist === fileArtist && dbDate === fileDate;
+};
+
 const renderConvertedRow = (entry: ConvertedEntry, tags: Record<string, string>, message = "") => {
   const fileLink = `/media/converted/${escapeHtml(entry.filename)}`;
   const speed = entry.speedLabel ? `${escapeHtml(entry.speedLabel)}x` : "Unknown";
+  const synced = tagsMatch(entry, tags);
+  const tagStatus = entry.episodeId
+    ? (synced
+        ? `<span class="tag-status tag-status--ok">&#10003; Tags synced</span>`
+        : `<span class="tag-status tag-status--warn">&#9888; Tags differ</span>`)
+    : "";
   const actions = entry.episodeId
     ? `
       <form
@@ -561,18 +580,17 @@ const renderConvertedRow = (entry: ConvertedEntry, tags: Record<string, string>,
       </form>
     `
     : `<span class="muted">No match</span>`;
-  const status = message ? `<div class="muted">${escapeHtml(message)}</div>` : "";
+  const statusMsg = message ? `<div class="muted">${escapeHtml(message)}</div>` : "";
   return `
     <tr>
       <td>
         <div><a href="${fileLink}" download>${escapeHtml(entry.filename)}</a></div>
         <div class="muted">${speed}</div>
       </td>
-      <td class="tag-list">${renderDbTagList(entry)}</td>
-      <td class="tag-list">${renderTagList(tags)}</td>
+      <td class="tag-list">${renderDbTagList(entry)}${tagStatus}</td>
       <td>
         ${actions}
-        ${status}
+        ${statusMsg}
       </td>
     </tr>
   `;
@@ -605,8 +623,7 @@ const renderConvertedTable = async (entries: ConvertedEntry[], messageByFile = n
           <thead>
             <tr>
               <th>File</th>
-              <th>Podcast / Episode</th>
-              <th>Tags</th>
+              <th>Episode / Tags</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -706,6 +723,65 @@ const convertAudio = async (originalPath: string, targetPath: string, speed: num
   }
 };
 
+function renderEpisodeList(
+  feedId: number,
+  episodes: EpisodeRow[],
+  conversions: Record<number, Record<string, string>>,
+  offset: number
+): string {
+  const page = episodes.slice(offset, offset + EPISODES_PER_PAGE);
+  const hasMore = episodes.length > offset + EPISODES_PER_PAGE;
+
+  const articles = page
+    .map((ep) => {
+      const duration = formatDuration(ep.duration_secs);
+      const published = escapeHtml(formatTimestamp(ep.published_at));
+      const epConversions = conversions[ep.id] || {};
+      const buttons = SPEEDS.map((speed) => {
+        const label = formatSpeedLabel(speed);
+        const existing = epConversions[label];
+        if (existing) {
+          return `<a class="contrast" href="${escapeHtml(existing)}" download>Download ${label}x</a>`;
+        }
+        return `
+            <button
+              hx-post="/api/episodes/${ep.id}/convert"
+              hx-vals='{"speed": "${speed}"}'
+              hx-target="this"
+              hx-swap="outerHTML">
+              Convert ${label}x
+            </button>
+        `;
+      }).join("");
+      return `
+        <article>
+          <header>
+            <h3>${escapeHtml(ep.title || "Untitled episode")}${duration ? ` <small>(${duration})</small>` : ""}</h3>
+            <p><small>${published}</small></p>
+          </header>
+          ${descriptionDetails(ep.description || "")}
+          <div class="convert-buttons">${buttons}</div>
+        </article>
+      `;
+    })
+    .join("");
+
+  const loadMore = hasMore
+    ? `<div class="load-more">
+        <button class="secondary"
+          hx-get="/api/feed/${feedId}?offset=${offset + EPISODES_PER_PAGE}"
+          hx-target="closest .load-more"
+          hx-swap="outerHTML"
+          hx-indicator=".load-more-spinner">
+          Load more episodes
+          <span class="htmx-indicator load-more-spinner"><span class="spinner" aria-label="Loading"></span></span>
+        </button>
+      </div>`
+    : "";
+
+  return articles + loadMore;
+}
+
 function renderFeedDetail(
   feed: FeedRow,
   episodes: EpisodeRow[],
@@ -723,43 +799,7 @@ function renderFeedDetail(
     return `<section>${header}<p>No episodes yet for this feed.</p></section>`;
   }
 
-  const list = episodes
-    .map((ep) => {
-      const duration = formatDuration(ep.duration_secs);
-      const published = escapeHtml(ep.published_at || "");
-      const epConversions = conversions[ep.id] || {};
-      const buttons = SPEEDS.map((speed) => {
-        const label = formatSpeedLabel(speed);
-        const existing = epConversions[label];
-        if (existing) {
-          return `<a class="contrast" href="${escapeHtml(existing)}" download>Download ${label}x</a>`;
-        }
-        return `
-          <div>
-            <button
-              hx-post="/api/episodes/${ep.id}/convert"
-              hx-vals='{"speed": "${speed}"}'
-              hx-target="this"
-              hx-swap="outerHTML">
-              Convert ${label}x
-            </button>
-          </div>
-        `;
-      }).join("");
-      return `
-        <article>
-          <header>
-            <h3>${escapeHtml(ep.title || "Untitled episode")}${duration ? ` <small>(${duration})</small>` : ""}</h3>
-            <p><small>${published}</small></p>
-          </header>
-          ${descriptionDetails(ep.description || "")}
-          <div class="grid">${buttons}</div>
-        </article>
-      `;
-    })
-    .join("");
-
-  return `<section>${header}${list}</section>`;
+  return `<section>${header}${renderEpisodeList(feed.id, episodes, conversions, 0)}</section>`;
 }
 
 async function getFeedDetail(feedId: number): Promise<{
@@ -875,6 +915,14 @@ const feedDetail = async (request: Request) => {
   if (!Number.isFinite(feedId)) return notFound();
   const data = await getFeedDetail(feedId);
   if (!data) return notFound();
+
+  const url = new URL(request.url);
+  const offsetParam = url.searchParams.get("offset");
+  if (offsetParam !== null) {
+    const offset = Math.max(0, Number(offsetParam) || 0);
+    return htmlResponse(renderEpisodeList(feedId, data.episodes, data.conversions, offset));
+  }
+
   return htmlResponse(renderFeedDetail(data.feed, data.episodes, data.conversions));
 };
 
