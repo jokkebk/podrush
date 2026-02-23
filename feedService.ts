@@ -58,6 +58,14 @@ const updateFeedStmt = db.prepare(
 `
 );
 
+const markFeedCheckedStmt = db.prepare(
+  `
+  UPDATE feeds
+  SET last_checked = ?
+  WHERE id = ?
+`
+);
+
 const upsertEpisodeStmt = db.prepare(
   `
   INSERT INTO episodes (feed_id, guid, title, description, audio_url, published_at, duration_secs)
@@ -72,7 +80,14 @@ const upsertEpisodeStmt = db.prepare(
 );
 
 const USER_AGENT = process.env.USER_AGENT || "podrush/0.1";
-const REFRESH_MAX_AGE_HOURS = 6;
+const DEFAULT_REFRESH_MAX_AGE_HOURS = 24;
+const refreshMaxAgeHoursFromEnv = Number(
+  process.env.FEED_REFRESH_MAX_AGE_HOURS || process.env.REFRESH_MAX_AGE_HOURS
+);
+export const REFRESH_MAX_AGE_HOURS =
+  Number.isFinite(refreshMaxAgeHoursFromEnv) && refreshMaxAgeHoursFromEnv > 0
+    ? refreshMaxAgeHoursFromEnv
+    : DEFAULT_REFRESH_MAX_AGE_HOURS;
 
 const parseDuration = (raw: unknown): number | null => {
   if (raw === null || raw === undefined) return null;
@@ -243,6 +258,10 @@ const normalizeParsedFeed = (format: string, feed: any) => {
   return normalizeRss(feed);
 };
 
+const markFeedChecked = (feedId: number) => {
+  markFeedCheckedStmt.run(new Date().toISOString(), feedId);
+};
+
 export async function refreshFeed(feed: FeedRow | { id: number; url: string }) {
   let response: Response;
   try {
@@ -253,9 +272,14 @@ export async function refreshFeed(feed: FeedRow | { id: number; url: string }) {
     });
   } catch (err) {
     console.error("Failed to fetch feed", feed.url, err);
+    markFeedChecked(feed.id);
     return;
   }
-  if (!response.ok) return;
+  if (!response.ok) {
+    console.error("Failed to fetch feed", feed.url, response.status, response.statusText);
+    markFeedChecked(feed.id);
+    return;
+  }
 
   const body = await response.text();
   let parsed;
@@ -263,6 +287,7 @@ export async function refreshFeed(feed: FeedRow | { id: number; url: string }) {
     parsed = parseFeed(body);
   } catch (err) {
     console.error("Failed to parse feed", feed.url, err);
+    markFeedChecked(feed.id);
     return;
   }
 
@@ -294,14 +319,23 @@ export async function refreshFeed(feed: FeedRow | { id: number; url: string }) {
   upsertBatch(normalized.episodes);
 }
 
-export async function refreshFeedsIfStale(feeds: FeedRow[], maxAgeHours = REFRESH_MAX_AGE_HOURS) {
+export const isFeedStale = (feed: FeedRow, maxAgeHours = REFRESH_MAX_AGE_HOURS) => {
   const thresholdMs = maxAgeHours * 60 * 60 * 1000;
   const now = Date.now();
+  const lastCheckedMs = feed.last_checked ? Date.parse(feed.last_checked) : NaN;
+  return Number.isNaN(lastCheckedMs) || now - lastCheckedMs > thresholdMs;
+};
+
+export async function refreshFeedsIfStale(feeds: FeedRow[], maxAgeHours = REFRESH_MAX_AGE_HOURS) {
   for (const feed of feeds) {
-    const lastCheckedMs = feed.last_checked ? Date.parse(feed.last_checked) : NaN;
-    const isStale = Number.isNaN(lastCheckedMs) || now - lastCheckedMs > thresholdMs;
-    if (isStale) {
+    if (isFeedStale(feed, maxAgeHours)) {
       await refreshFeed(feed);
     }
+  }
+}
+
+export async function refreshAllFeeds(feeds: FeedRow[]) {
+  for (const feed of feeds) {
+    await refreshFeed(feed);
   }
 }

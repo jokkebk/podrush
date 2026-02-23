@@ -16,7 +16,8 @@ Then open http://localhost:3000/feeds.
 
 ## Usage
 - Add an RSS feed URL.
-- Open a feed to auto-refresh episodes.
+- Feeds auto-refresh in the background when they are stale (default: 24h).
+- Use the `Refresh now` button to force an immediate background refresh.
 - Click a speed button (1.1x–2.0x) to convert; existing conversions show as download links.
 - Original downloads are cached under `media/original/`; converted files live in `media/converted/`.
 
@@ -27,5 +28,5 @@ Then open http://localhost:3000/feeds.
 
 ## Notes
 - Conversion uses `ffmpeg -filter:a atempo=<speed>`.
-- Feeds are refreshed when viewed (stale >6h).
+- Feed refresh staleness is configurable with `FEED_REFRESH_MAX_AGE_HOURS` (or `REFRESH_MAX_AGE_HOURS`).
 - HTMX provides the button-to-link swap; spinners indicate in-progress conversions.

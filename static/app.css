@@ -285,6 +285,36 @@ small {
   align-items: stretch;
 }
 
+#feeds-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.feeds-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.feeds-toolbar-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.feeds-toolbar-copy small {
+  color: var(--text-muted);
+}
+
+.feeds-refresh-notice {
+  font-size: 0.82rem;
+  color: var(--primary);
+}
+
+.feeds-refresh-form {
+  white-space: nowrap;
+}
+
 /* ── Feed card ────────────────────────────────────────────── */
 
 .feed-card {
@@ -687,5 +717,10 @@ article > header h3 {
 
   .feeds-grid {
     grid-template-columns: 1fr;
+  }
+
+  .feeds-toolbar {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

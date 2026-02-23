@@ -1,6 +1,8 @@
 import { join, resolve } from "path";
 import { readdirSync, statSync } from "fs";
-import { refreshFeed, refreshFeedsIfStale, type FeedRow } from "./feedService";
+import {
+  refreshFeed, refreshAllFeeds, isFeedStale, REFRESH_MAX_AGE_HOURS, type FeedRow,
+} from "./feedService";
 import {
   MEDIA_DIR, CONVERTED_DIR, log,
   htmlResponse, notFound, logRequest, getRouteParam,
@@ -24,11 +26,45 @@ function getFeeds(): FeedRow[] {
   return selectFeeds.all() as FeedRow[];
 }
 
-const isFeedStale = (feed: FeedRow, maxAgeHours = 6) => {
-  const thresholdMs = maxAgeHours * 60 * 60 * 1000;
-  const now = Date.now();
-  const lastCheckedMs = feed.last_checked ? Date.parse(feed.last_checked) : NaN;
-  return Number.isNaN(lastCheckedMs) || now - lastCheckedMs > thresholdMs;
+let feedRefreshJob: Promise<void> | null = null;
+
+const isFeedRefreshRunning = () => feedRefreshJob !== null;
+
+const startFeedRefresh = (feeds: FeedRow[], force = false): boolean => {
+  if (isFeedRefreshRunning()) return false;
+  const targets = force ? feeds : feeds.filter((feed) => isFeedStale(feed, REFRESH_MAX_AGE_HOURS));
+  if (!targets.length) return false;
+
+  feedRefreshJob = (async () => {
+    log("Feed refresh started", {
+      force,
+      feedCount: targets.length,
+      maxAgeHours: REFRESH_MAX_AGE_HOURS,
+    });
+    await refreshAllFeeds(targets);
+    log("Feed refresh completed", { feedCount: targets.length });
+  })()
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log("Feed refresh failed", { message });
+    })
+    .finally(() => {
+      feedRefreshJob = null;
+    });
+  return true;
+};
+
+const hasStaleFeeds = (feeds: FeedRow[]) =>
+  feeds.some((feed) => isFeedStale(feed, REFRESH_MAX_AGE_HOURS));
+
+const renderFeedsHtml = (notice = "") => {
+  const feeds = getFeeds();
+  return renderFeeds(feeds, {
+    notice,
+    refreshInProgress: isFeedRefreshRunning(),
+    hasStaleFeeds: hasStaleFeeds(feeds),
+    refreshMaxAgeHours: REFRESH_MAX_AGE_HOURS,
+  });
 };
 
 async function getFeedDetail(feedId: number): Promise<{
@@ -39,8 +75,8 @@ async function getFeedDetail(feedId: number): Promise<{
   const feed = selectFeedById.get(feedId) as FeedRow | undefined;
   if (!feed) return null;
 
-  if (isFeedStale(feed)) {
-    await refreshFeed(feed);
+  if (isFeedStale(feed, REFRESH_MAX_AGE_HOURS)) {
+    startFeedRefresh([feed], false);
   }
 
   const refreshedFeed = selectFeedById.get(feedId) as FeedRow | undefined;
@@ -153,8 +189,7 @@ async function addFeed(request: Request) {
     }
   }
 
-  const feeds = getFeeds();
-  return htmlResponse(renderFeeds(feeds));
+  return htmlResponse(renderFeedsHtml());
 }
 
 export const serveIndex = (request: Request) => {
@@ -175,9 +210,22 @@ export const serveConvertedHtml = (request: Request) => {
 export const listFeeds = async (request: Request) => {
   logRequest(request);
   const feeds = getFeeds();
-  await refreshFeedsIfStale(feeds);
-  const refreshed = getFeeds();
-  return htmlResponse(renderFeeds(refreshed));
+  startFeedRefresh(feeds, false);
+  return htmlResponse(renderFeedsHtml());
+};
+
+export const refreshFeedsNow = async (request: Request) => {
+  logRequest(request);
+  const feeds = getFeeds();
+  let notice = "Refresh already in progress.";
+
+  if (!feeds.length) {
+    notice = "No feeds available to refresh.";
+  } else if (startFeedRefresh(feeds, true)) {
+    notice = "Refresh started in background.";
+  }
+
+  return htmlResponse(renderFeedsHtml(notice));
 };
 
 export const createFeed = (request: Request) => {

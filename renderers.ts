@@ -35,11 +35,61 @@ export const renderFeedShortNameForm = (feed: FeedRow, message = ""): string => 
   `;
 };
 
-export function renderFeeds(feeds: FeedRow[]): string {
+type RenderFeedsOptions = {
+  notice?: string;
+  refreshInProgress?: boolean;
+  hasStaleFeeds?: boolean;
+  refreshMaxAgeHours?: number;
+};
+
+export function renderFeeds(feeds: FeedRow[], options: RenderFeedsOptions = {}): string {
+  const {
+    notice = "",
+    refreshInProgress = false,
+    hasStaleFeeds = false,
+    refreshMaxAgeHours = 24,
+  } = options;
+  const refreshWindow =
+    refreshMaxAgeHours % 24 === 0
+      ? `${refreshMaxAgeHours / 24} day${refreshMaxAgeHours === 24 ? "" : "s"}`
+      : `${refreshMaxAgeHours} hours`;
+  const refreshState = refreshInProgress
+    ? "Refreshing feeds in background."
+    : hasStaleFeeds
+      ? `Some feeds are older than ${refreshWindow}.`
+      : `All feeds checked within ${refreshWindow}.`;
+  const noticeHtml = notice
+    ? `<div class="feeds-refresh-notice">${escapeHtml(notice)}</div>`
+    : "";
+  const toolbar = `
+    <div class="feeds-toolbar">
+      <div class="feeds-toolbar-copy">
+        <small>Auto refresh runs in background.</small>
+        <small>${escapeHtml(refreshState)}</small>
+        ${noticeHtml}
+      </div>
+      <form
+        class="feeds-refresh-form"
+        hx-post="/api/feeds/refresh"
+        hx-target="#feeds-list"
+        hx-swap="outerHTML"
+        hx-indicator="#feeds-refresh-indicator"
+      >
+        <button type="submit" class="secondary">Refresh now</button>
+        <span class="htmx-indicator" id="feeds-refresh-indicator">
+          <span class="spinner" aria-label="Loading"></span>
+        </span>
+      </form>
+    </div>
+  `;
+
   if (!feeds.length) {
     return `
-      <section class="grid feeds-grid" id="feeds-list">
-        <p>No feeds yet. Add one to get started.</p>
+      <section id="feeds-list">
+        ${toolbar}
+        <div class="grid feeds-grid">
+          <p>No feeds yet. Add one to get started.</p>
+        </div>
       </section>
     `;
   }
@@ -72,7 +122,12 @@ export function renderFeeds(feeds: FeedRow[]): string {
     })
     .join("");
 
-  return `<section class="grid feeds-grid" id="feeds-list">${cards}</section>`;
+  return `
+    <section id="feeds-list">
+      ${toolbar}
+      <div class="grid feeds-grid">${cards}</div>
+    </section>
+  `;
 }
 
 export function renderEpisodeList(

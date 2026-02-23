@@ -1,16 +1,18 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { spawn } from "bun";
-import { join } from "path";
 import { existsSync, mkdirSync, rmSync } from "fs";
 
 // Test server details
-const TEST_PORT = 13001;
-const BASE_URL = `http://localhost:${TEST_PORT}`;
 const TEST_DB_PATH = "db.test.sqlite";
 
 // We'll start a test fixture server to serve our malicious RSS feeds
 let fixtureServer: ReturnType<typeof spawn> | null = null;
 let appServer: ReturnType<typeof spawn> | null = null;
+let appPort = 0;
+let fixturePort = 0;
+let baseUrl = "";
+let fixtureBaseUrl = "";
+const randomPort = () => 20000 + Math.floor(Math.random() * 20000);
 
 const waitForServer = async (url: string, timeoutMs = 10000) => {
   const start = Date.now();
@@ -37,6 +39,12 @@ const cleanupDbFiles = (path: string) => {
 
 describe("Security Integration Tests", () => {
   beforeAll(async () => {
+    fixturePort = randomPort();
+    appPort = randomPort();
+    if (appPort === fixturePort) appPort += 1;
+    baseUrl = `http://localhost:${appPort}`;
+    fixtureBaseUrl = `http://localhost:${fixturePort}`;
+
     // Create test media directories
     mkdirSync("./media", { recursive: true });
     mkdirSync("./media/original", { recursive: true });
@@ -47,7 +55,7 @@ describe("Security Integration Tests", () => {
       "bun",
       "-e",
       `Bun.serve({
-        port: 18888,
+        port: ${fixturePort},
         fetch(req) {
           const url = new URL(req.url);
           if (url.pathname === "/malicious_xss.xml") {
@@ -66,9 +74,9 @@ describe("Security Integration Tests", () => {
 
     // Start the main app server
     appServer = spawn(["bun", "run", "index.ts"], {
-      env: { ...process.env, PODRUSH_DB_PATH: TEST_DB_PATH },
+      env: { ...process.env, PODRUSH_DB_PATH: TEST_DB_PATH, PORT: String(appPort) },
     });
-    await waitForServer("http://localhost:3000/api/feeds");
+    await waitForServer(`${baseUrl}/api/feeds`);
   });
 
   afterAll(async () => {
@@ -80,28 +88,28 @@ describe("Security Integration Tests", () => {
 
   describe("Path Traversal Protection", () => {
     test("should block access to index.ts via path traversal", async () => {
-      const response = await fetch("http://localhost:3000/media/../index.ts");
+      const response = await fetch(`${baseUrl}/media/../index.ts`);
       expect(response.status).toBe(404);
     });
 
     test("should block access to package.json", async () => {
-      const response = await fetch("http://localhost:3000/media/../package.json");
+      const response = await fetch(`${baseUrl}/media/../package.json`);
       expect(response.status).toBe(404);
     });
 
     test("should block deep path traversal attempts", async () => {
-      const response = await fetch("http://localhost:3000/media/../../../../../../etc/passwd");
+      const response = await fetch(`${baseUrl}/media/../../../../../../etc/passwd`);
       expect(response.status).toBe(404);
     });
 
     test("should block sibling directory access", async () => {
-      const response = await fetch("http://localhost:3000/media/../html/index.html");
+      const response = await fetch(`${baseUrl}/media/../html/index.html`);
       expect(response.status).toBe(404);
     });
 
     test("should allow legitimate media file requests", async () => {
       // This will 404 because file doesn't exist, but it won't be blocked by path traversal
-      const response = await fetch("http://localhost:3000/media/original/test.mp3");
+      const response = await fetch(`${baseUrl}/media/original/test.mp3`);
       // Should be 404 (file not found) not 404 (path traversal blocked)
       // Both are 404, but the point is it's not blocked at the path level
       expect(response.status).toBe(404);
@@ -111,9 +119,9 @@ describe("Security Integration Tests", () => {
   describe("XSS Prevention", () => {
     test("should escape malicious script tags in feed", async () => {
       const formData = new FormData();
-      formData.append("url", "http://localhost:18888/malicious_xss.xml");
+      formData.append("url", `${fixtureBaseUrl}/malicious_xss.xml`);
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -135,9 +143,9 @@ describe("Security Integration Tests", () => {
 
     test("should escape malicious content in feed description", async () => {
       const formData = new FormData();
-      formData.append("url", "http://localhost:18888/malicious_xss.xml");
+      formData.append("url", `${fixtureBaseUrl}/malicious_xss.xml`);
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -155,7 +163,7 @@ describe("Security Integration Tests", () => {
       const formData = new FormData();
       formData.append("url", "file:///etc/passwd");
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -169,7 +177,7 @@ describe("Security Integration Tests", () => {
       const formData = new FormData();
       formData.append("url", "javascript:alert('xss')");
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -183,7 +191,7 @@ describe("Security Integration Tests", () => {
       const formData = new FormData();
       formData.append("url", "ftp://example.com/feed.xml");
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -197,7 +205,7 @@ describe("Security Integration Tests", () => {
       const formData = new FormData();
       formData.append("url", "data:text/html,<script>alert(1)</script>");
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -209,9 +217,9 @@ describe("Security Integration Tests", () => {
 
     test("should accept valid HTTP URL", async () => {
       const formData = new FormData();
-      formData.append("url", "http://localhost:18888/valid_feed.xml");
+      formData.append("url", `${fixtureBaseUrl}/valid_feed.xml`);
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -223,7 +231,7 @@ describe("Security Integration Tests", () => {
       const formData = new FormData();
       formData.append("url", "https://example.com/feed.xml");
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -236,7 +244,7 @@ describe("Security Integration Tests", () => {
       const formData = new FormData();
       formData.append("url", "not a valid url");
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -254,7 +262,7 @@ describe("Security Integration Tests", () => {
       formData.append("url", "http://192.0.2.1:9999/feed.xml");
 
       const startTime = Date.now();
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -273,7 +281,7 @@ describe("Security Integration Tests", () => {
   describe("Content Type Validation", () => {
     test("should serve MP3 files with correct content type", async () => {
       // Note: This will 404 but we can check headers
-      const response = await fetch("http://localhost:3000/media/converted/test.mp3");
+      const response = await fetch(`${baseUrl}/media/converted/test.mp3`);
       // Even on 404, we can verify the intent by checking what would be served
       expect(response.status).toBe(404);
     });
@@ -284,7 +292,7 @@ describe("Security Integration Tests", () => {
       const formData = new FormData();
       formData.append("url", "");
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
@@ -298,7 +306,7 @@ describe("Security Integration Tests", () => {
       const formData = new FormData();
       formData.append("url", "   ");
 
-      const response = await fetch("http://localhost:3000/api/feeds", {
+      const response = await fetch(`${baseUrl}/api/feeds`, {
         method: "POST",
         body: formData,
       });
