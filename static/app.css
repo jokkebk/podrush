@@ -278,6 +278,27 @@ small {
   flex: 0 0 auto;
 }
 
+.convert-buttons button {
+  min-width: 8.75rem;
+}
+
+.convert-buttons button.htmx-request {
+  pointer-events: none;
+}
+
+.convert-buttons button.htmx-request .convert-label {
+  display: none;
+}
+
+.convert-working {
+  gap: 0.35rem;
+  justify-content: center;
+}
+
+.convert-working .spinner {
+  margin-left: 0;
+}
+
 .feeds-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

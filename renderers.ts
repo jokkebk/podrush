@@ -156,8 +156,13 @@ export function renderEpisodeList(
               hx-post="/api/episodes/${ep.id}/convert"
               hx-vals='{"speed": "${speed}"}'
               hx-target="this"
+              hx-indicator="this"
               hx-swap="outerHTML">
-              Convert ${label}x
+              <span class="convert-label">Convert ${label}x</span>
+              <span class="htmx-indicator convert-working">
+                <span class="spinner" aria-label="Converting"></span>
+                <span>Converting...</span>
+              </span>
             </button>
         `;
       }).join("");
