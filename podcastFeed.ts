@@ -3,6 +3,7 @@ import { basename, join } from "path";
 import {
   CONVERTED_DIR,
   env,
+  log,
   plainText,
   selectPodcastEpisodeMetadata,
   type PodcastEpisodeMetadata,
@@ -65,6 +66,15 @@ type SpawnResult = {
 };
 
 type SpawnRunner = (args: string[]) => SpawnResult;
+
+type UploadSourceSnapshot = {
+  sourceDir: string;
+  fileCount: number;
+  totalBytes: number;
+  feedFilename: string;
+  feedExists: boolean;
+  sampleFiles: string[];
+};
 
 const defaultSpawnRunner: SpawnRunner = (args) =>
   Bun.spawn(args, { stdout: "pipe", stderr: "pipe" }) as unknown as SpawnResult;
@@ -272,6 +282,78 @@ export const buildRsyncArgs = (sourceDir: string, uploadTarget: string): string[
   return ["rsync", "-av", "--delete", "--exclude", ".DS_Store", source, uploadTarget];
 };
 
+const shellQuote = (value: string): string => {
+  if (/^[A-Za-z0-9_/:=.,@%+-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+};
+
+const formatCommand = (args: string[]): string => args.map(shellQuote).join(" ");
+
+const collectUploadSourceSnapshot = (
+  sourceDir: string,
+  feedFilename: string
+): UploadSourceSnapshot => {
+  const snapshot: UploadSourceSnapshot = {
+    sourceDir,
+    fileCount: 0,
+    totalBytes: 0,
+    feedFilename,
+    feedExists: false,
+    sampleFiles: [],
+  };
+
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(sourceDir).sort((a, b) => a.localeCompare(b));
+  } catch {
+    return snapshot;
+  }
+
+  for (const filename of entries) {
+    if (filename === ".DS_Store") continue;
+    const path = join(sourceDir, filename);
+    let stat;
+    try {
+      stat = statSync(path);
+    } catch {
+      continue;
+    }
+    if (!stat.isFile()) continue;
+
+    snapshot.fileCount += 1;
+    snapshot.totalBytes += stat.size;
+    if (filename === feedFilename) snapshot.feedExists = true;
+    if (snapshot.sampleFiles.length < 8) snapshot.sampleFiles.push(filename);
+  }
+
+  return snapshot;
+};
+
+const formatUploadDebugSummary = (
+  args: string[],
+  snapshot: UploadSourceSnapshot,
+  exitCode: number,
+  stdout: string,
+  stderr: string
+): string => {
+  const lines = [
+    `Command: ${formatCommand(args)}`,
+    `Source: ${snapshot.sourceDir} (${snapshot.fileCount} files, ${snapshot.totalBytes} bytes)`,
+    `Feed file: ${snapshot.feedFilename} (${snapshot.feedExists ? "present" : "missing"})`,
+    `Exit code: ${exitCode}`,
+  ];
+  if (snapshot.sampleFiles.length) {
+    lines.push(`Sample files: ${snapshot.sampleFiles.join(", ")}`);
+  }
+  if (stdout.trim()) {
+    lines.push("", "stdout:", stdout.trim());
+  }
+  if (stderr.trim()) {
+    lines.push("", "stderr:", stderr.trim());
+  }
+  return lines.join("\n").slice(0, 4000);
+};
+
 const bodyText = async (body: unknown): Promise<string> => {
   if (!body) return "";
   return new Response(body as any).text();
@@ -283,17 +365,36 @@ export const uploadConvertedMedia = async (
 ): Promise<PodcastFeedStatus> => {
   const config = getPodcastFeedConfig();
   if (!config.uploadTarget) {
+    log("Podcast upload skipped", { reason: "missing PODRUSH_UPLOAD_TARGET" });
     return { ...status, message: "Upload target is not configured." };
   }
 
   const args = buildRsyncArgs(CONVERTED_DIR, config.uploadTarget);
+  const snapshot = collectUploadSourceSnapshot(CONVERTED_DIR, config.feedFilename);
+  log("Podcast upload starting", {
+    command: formatCommand(args),
+    sourceDir: snapshot.sourceDir,
+    sourceFileCount: snapshot.fileCount,
+    sourceTotalBytes: snapshot.totalBytes,
+    feedFilename: snapshot.feedFilename,
+    feedExists: snapshot.feedExists,
+    sampleFiles: snapshot.sampleFiles,
+  });
+
   const proc = runner(args);
   const [exitCode, stdout, stderr] = await Promise.all([
     proc.exited,
     bodyText(proc.stdout),
     bodyText(proc.stderr),
   ]);
-  const summary = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n").slice(0, 2000);
+  const summary = formatUploadDebugSummary(args, snapshot, exitCode, stdout, stderr);
+  log("Podcast upload finished", {
+    exitCode,
+    stdoutBytes: stdout.length,
+    stderrBytes: stderr.length,
+    stdoutPreview: stdout.trim().slice(0, 500),
+    stderrPreview: stderr.trim().slice(0, 500),
+  });
 
   if (exitCode !== 0) {
     return {
@@ -306,6 +407,6 @@ export const uploadConvertedMedia = async (
   return {
     ...status,
     message: "Upload completed.",
-    uploadSummary: summary || "rsync completed without output.",
+    uploadSummary: summary,
   };
 };

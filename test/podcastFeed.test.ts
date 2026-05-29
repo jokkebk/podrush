@@ -215,6 +215,8 @@ describe("podcast feed generation", () => {
 
       expect(seen[0]).toEqual(buildRsyncArgs("media/converted", "user@host:/data/podrush/"));
       expect(status.message).toBe("Upload completed.");
+      expect(status.uploadSummary).toContain("Command: rsync -av --delete");
+      expect(status.uploadSummary).toContain("Exit code: 0");
       expect(status.uploadSummary).toContain("sent 123 bytes");
     } finally {
       if (oldTarget === undefined) {
