@@ -180,6 +180,8 @@ describe("podcast feed generation", () => {
       "--delete",
       "--exclude",
       ".DS_Store",
+      "--exclude",
+      ".*.??????",
       "media/converted/",
       "user@host:/data/podrush/",
     ]);
@@ -218,6 +220,50 @@ describe("podcast feed generation", () => {
       expect(status.uploadSummary).toContain("Command: rsync -av --delete");
       expect(status.uploadSummary).toContain("Exit code: 0");
       expect(status.uploadSummary).toContain("sent 123 bytes");
+    } finally {
+      if (oldTarget === undefined) {
+        delete Bun.env.PODRUSH_UPLOAD_TARGET;
+      } else {
+        Bun.env.PODRUSH_UPLOAD_TARGET = oldTarget;
+      }
+    }
+  });
+
+  test("skips overlapping uploads", async () => {
+    const oldTarget = Bun.env.PODRUSH_UPLOAD_TARGET;
+    Bun.env.PODRUSH_UPLOAD_TARGET = "user@host:/data/podrush/";
+    let finishUpload!: () => void;
+    try {
+      const baseStatus = {
+        feedPath: "media/converted/test-feed.xml",
+        feedFilename: "test-feed.xml",
+        publicFeedUrl: "https://example.com/data/podrush/test-feed.xml",
+        publicBaseUrl: "https://example.com/data/podrush",
+        configuredPublicBaseUrl: true,
+        uploadTarget: "user@host:/data/podrush/",
+        configuredUploadTarget: true,
+        generatedAt: new Date().toISOString(),
+        itemCount: 1,
+        unmatchedCount: 0,
+        matchedFileCount: 1,
+        skippedFiles: [],
+      };
+
+      const first = uploadConvertedMedia(baseStatus, () => ({
+        exited: new Promise<number>((resolve) => {
+          finishUpload = () => resolve(0);
+        }),
+        stdout: "sent 123 bytes",
+        stderr: "",
+      }));
+      const second = await uploadConvertedMedia(baseStatus, () => {
+        throw new Error("second upload should not start");
+      });
+      finishUpload();
+      await first;
+
+      expect(second.message).toBe("Upload already in progress.");
+      expect(second.uploadSummary).toContain("Another upload is still running");
     } finally {
       if (oldTarget === undefined) {
         delete Bun.env.PODRUSH_UPLOAD_TARGET;

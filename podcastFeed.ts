@@ -79,6 +79,8 @@ type UploadSourceSnapshot = {
 const defaultSpawnRunner: SpawnRunner = (args) =>
   Bun.spawn(args, { stdout: "pipe", stderr: "pipe" }) as unknown as SpawnResult;
 
+let uploadInProgress = false;
+
 export const getPodcastFeedConfig = (): PodcastFeedConfig => ({
   publicBaseUrl: (env.PODRUSH_PUBLIC_BASE_URL || "").trim(),
   feedFilename: sanitizeFeedFilename(env.PODRUSH_FEED_FILENAME || DEFAULT_FEED_FILENAME),
@@ -279,7 +281,17 @@ export const generatePodcastFeed = (
 
 export const buildRsyncArgs = (sourceDir: string, uploadTarget: string): string[] => {
   const source = sourceDir.endsWith("/") ? sourceDir : `${sourceDir}/`;
-  return ["rsync", "-av", "--delete", "--exclude", ".DS_Store", source, uploadTarget];
+  return [
+    "rsync",
+    "-av",
+    "--delete",
+    "--exclude",
+    ".DS_Store",
+    "--exclude",
+    ".*.??????",
+    source,
+    uploadTarget,
+  ];
 };
 
 const shellQuote = (value: string): string => {
@@ -368,6 +380,15 @@ export const uploadConvertedMedia = async (
     log("Podcast upload skipped", { reason: "missing PODRUSH_UPLOAD_TARGET" });
     return { ...status, message: "Upload target is not configured." };
   }
+  if (uploadInProgress) {
+    log("Podcast upload skipped", { reason: "upload already in progress" });
+    return {
+      ...status,
+      message: "Upload already in progress.",
+      uploadSummary:
+        "Another upload is still running. Wait for it to finish before starting a new upload.",
+    };
+  }
 
   const args = buildRsyncArgs(CONVERTED_DIR, config.uploadTarget);
   const snapshot = collectUploadSourceSnapshot(CONVERTED_DIR, config.feedFilename);
@@ -381,32 +402,37 @@ export const uploadConvertedMedia = async (
     sampleFiles: snapshot.sampleFiles,
   });
 
-  const proc = runner(args);
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    bodyText(proc.stdout),
-    bodyText(proc.stderr),
-  ]);
-  const summary = formatUploadDebugSummary(args, snapshot, exitCode, stdout, stderr);
-  log("Podcast upload finished", {
-    exitCode,
-    stdoutBytes: stdout.length,
-    stderrBytes: stderr.length,
-    stdoutPreview: stdout.trim().slice(0, 500),
-    stderrPreview: stderr.trim().slice(0, 500),
-  });
+  uploadInProgress = true;
+  try {
+    const proc = runner(args);
+    const [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      bodyText(proc.stdout),
+      bodyText(proc.stderr),
+    ]);
+    const summary = formatUploadDebugSummary(args, snapshot, exitCode, stdout, stderr);
+    log("Podcast upload finished", {
+      exitCode,
+      stdoutBytes: stdout.length,
+      stderrBytes: stderr.length,
+      stdoutPreview: stdout.trim().slice(0, 500),
+      stderrPreview: stderr.trim().slice(0, 500),
+    });
 
-  if (exitCode !== 0) {
+    if (exitCode !== 0) {
+      return {
+        ...status,
+        message: `Upload failed with exit code ${exitCode}.`,
+        uploadSummary: summary,
+      };
+    }
+
     return {
       ...status,
-      message: `Upload failed with exit code ${exitCode}.`,
+      message: "Upload completed.",
       uploadSummary: summary,
     };
+  } finally {
+    uploadInProgress = false;
   }
-
-  return {
-    ...status,
-    message: "Upload completed.",
-    uploadSummary: summary,
-  };
 };
