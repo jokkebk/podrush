@@ -565,7 +565,86 @@ small {
 /* ── Converted files table ────────────────────────────────── */
 
 section[id="converted-list"] {
-  padding: 0.75rem 1rem;
+  padding: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.publish-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--bg-accent);
+}
+
+.publish-summary {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.publish-summary > div {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.publish-summary small {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.72em;
+}
+
+.publish-summary a,
+.publish-summary span,
+.publish-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.publish-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.publish-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.85rem;
+  font-size: 0.88rem;
+}
+
+.publish-skipped {
+  font-size: 0.88rem;
+}
+
+.publish-skipped summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.publish-skipped ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.publish-output {
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .table-wrap {

@@ -17,7 +17,7 @@ const pageShell = (main: string): string => `<!doctype html>
           </ul>
           <ul>
             <li><a href="/">Feeds</a></li>
-            <li><a href="/converted">Converted</a></li>
+            <li><a href="/converted">Episodes / Publish</a></li>
           </ul>
         </nav>
       </div>
@@ -70,8 +70,8 @@ const feedDetailContent = `      <div
       </div>`;
 
 const convertedContent = `      <hgroup>
-        <h1>Converted</h1>
-        <p>Review converted files and fix MP3 metadata using podcast data.</p>
+        <h1>Episodes / Publish</h1>
+        <p>Review converted files, generate the private RSS feed, and mirror it to hosting.</p>
       </hgroup>
 
       <div

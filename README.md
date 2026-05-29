@@ -20,11 +20,29 @@ Then open http://localhost:3000/feeds.
 - Use the `Refresh now` button to force an immediate background refresh.
 - Click a speed button (1.1x–2.0x) to convert; existing conversions show as download links.
 - Original downloads are cached under `media/original/`; converted files live in `media/converted/`.
+- The Episodes / Publish page can generate a static RSS feed from existing files in `media/converted/`.
+- Configure `PODRUSH_PUBLIC_BASE_URL` and `PODRUSH_UPLOAD_TARGET` to mirror `media/converted/` to a static hosting path with `rsync --delete`.
 
 ## Storage & filenames
 - SQLite database: `db.sqlite` (auto-created).
 - Originals: `media/original/<date>-id<episode_id>-orig.mp3`.
 - Converted: `media/converted/<date>-id<episode_id>-<speed>x.mp3` (UI discovers existing conversions by scanning this folder).
+- Private feed: `media/converted/<PODRUSH_FEED_FILENAME>` (default `podrush-feed.xml`).
+
+## Static private podcast feed
+Set these environment variables before using the upload button:
+
+```bash
+PODRUSH_PUBLIC_BASE_URL=https://mydomain.com/data/podrush
+PODRUSH_UPLOAD_TARGET=user@host:/path/to/data/podrush/
+PODRUSH_FEED_FILENAME=podrush-feed.xml
+```
+
+The feed is regenerated from disk when the Episodes / Publish page loads and after convert/delete/retag actions. Every matching converted MP3 becomes a separate RSS item, and metadata comes from SQLite by parsing the episode id in the filename. Files deleted from disk disappear from the next generated feed.
+
+Upload uses `rsync -av --delete --exclude .DS_Store media/converted/ "$PODRUSH_UPLOAD_TARGET"` so the remote directory mirrors local converted files.
+
+Spotify/Garmin note: this creates a normal static RSS feed for testing private podcast ingestion. Spotify's Garmin app supports offline podcast downloads, but arbitrary private RSS ingestion may not be supported directly by Spotify.
 
 ## Notes
 - Conversion uses `ffmpeg -filter:a atempo=<speed>`.

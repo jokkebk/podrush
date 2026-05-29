@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { resolve } from "path";
-import { escapeHtml, fetchWithTimeout } from "../lib";
+import { escapeHtml, fetchWithTimeout, sanitizeHtml } from "../lib";
 
 describe("Security Unit Tests", () => {
   describe("escapeHtml", () => {
@@ -54,6 +54,18 @@ describe("Security Unit Tests", () => {
     test("should handle string without special chars", () => {
       const input = "Hello World 123";
       expect(escapeHtml(input)).toBe(input);
+    });
+  });
+
+  describe("sanitizeHtml", () => {
+    test("should remove dangerous attributes while preserving harmless markup", () => {
+      const input = `<img src=x onerror="alert('xss')">This is a feed description`;
+      const output = sanitizeHtml(input);
+
+      expect(output).toContain("<img src=x>");
+      expect(output).toContain("This is a feed description");
+      expect(output).not.toContain("onerror=");
+      expect(output).not.toContain("alert(");
     });
   });
 

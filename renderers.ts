@@ -6,6 +6,7 @@ import {
   type EpisodeRow, type ConvertedEntry,
 } from "./lib";
 import { readId3Tags } from "./audio";
+import { type PodcastFeedStatus } from "./podcastFeed";
 
 export const renderFeedShortNameForm = (feed: FeedRow, message = ""): string => {
   const shortName = escapeHtml(feed.short_name || "");
@@ -231,7 +232,7 @@ const renderDbTagList = (entry: ConvertedEntry) => {
   const title = escapeHtml(entry.episodeTitle || "");
   const artist = escapeHtml(entry.feedTitle || "");
   const album = escapeHtml(entry.feedTitle || "");
-  const date = escapeHtml(formatId3Date(entry.publishedAt) || "");
+  const date = escapeHtml(formatId3Date(entry.publishedAt ?? null) || "");
   const genre = "Podcast";
   const lines = [
     title && `<span><strong>Title:</strong> ${title}</span>`,
@@ -248,7 +249,7 @@ export const tagsMatch = (entry: ConvertedEntry, fileTags: Record<string, string
   if (!entry.episodeId) return true;
   const dbTitle = (entry.episodeTitle || "").trim();
   const dbArtist = (entry.feedTitle || "").trim();
-  const dbDate = formatId3Date(entry.publishedAt) || "";
+  const dbDate = formatId3Date(entry.publishedAt ?? null) || "";
   const fileTitle = (fileTags.title || "").trim();
   const fileArtist = (fileTags.artist || fileTags.album_artist || "").trim();
   const fileDate = (fileTags.date || fileTags.year || "").trim();
@@ -305,11 +306,7 @@ export const renderConvertedRow = (entry: ConvertedEntry, tags: Record<string, s
 
 export const renderConvertedTable = async (entries: ConvertedEntry[], messageByFile = new Map<string, string>()) => {
   if (!entries.length) {
-    return `
-      <section id="converted-list">
-        <p>No converted files found.</p>
-      </section>
-    `;
+    return `<p>No converted files found.</p>`;
   }
   const rows = await Promise.all(
     entries.map(async (entry) => {
@@ -324,21 +321,110 @@ export const renderConvertedTable = async (entries: ConvertedEntry[], messageByF
     })
   );
   return `
-    <section id="converted-list">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>File</th>
-              <th>Episode / Tags</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.join("")}
-          </tbody>
-        </table>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Episode / Tags</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+};
+
+export const renderPodcastPublishPanel = (status: PodcastFeedStatus): string => {
+  const publicFeedUrl = status.configuredPublicBaseUrl
+    ? `<a href="${escapeHtml(status.publicFeedUrl)}">${escapeHtml(status.publicFeedUrl)}</a>`
+    : `<span class="muted">Set PODRUSH_PUBLIC_BASE_URL to produce public enclosure URLs.</span>`;
+  const uploadTarget = status.configuredUploadTarget
+    ? escapeHtml(status.uploadTarget)
+    : "Set PODRUSH_UPLOAD_TARGET to enable upload.";
+  const uploadDisabled = status.configuredUploadTarget ? "" : " disabled";
+  const skipped = status.skippedFiles.length
+    ? `<details class="publish-skipped">
+        <summary>${status.skippedFiles.length} unmatched file${status.skippedFiles.length === 1 ? "" : "s"}</summary>
+        <ul>${status.skippedFiles.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}</ul>
+      </details>`
+    : "";
+  const uploadSummary = status.uploadSummary
+    ? `<pre class="publish-output">${escapeHtml(status.uploadSummary)}</pre>`
+    : "";
+
+  return `
+    <div class="publish-panel">
+      <div class="publish-summary">
+        <div>
+          <small>RSS file</small>
+          <strong>${escapeHtml(status.feedFilename)}</strong>
+          <span class="muted">${escapeHtml(status.feedPath)}</span>
+        </div>
+        <div>
+          <small>Public feed URL</small>
+          ${publicFeedUrl}
+        </div>
+        <div>
+          <small>Items</small>
+          <strong>${status.itemCount}</strong>
+          <span class="muted">${status.unmatchedCount} unmatched</span>
+        </div>
+        <div>
+          <small>Upload target</small>
+          <span>${uploadTarget}</span>
+        </div>
       </div>
+
+      <div class="publish-actions">
+        <form
+          hx-post="/api/podcast-feed/regenerate"
+          hx-target="#converted-list"
+          hx-swap="outerHTML"
+          hx-indicator="#publish-regenerate-indicator"
+          class="inline-form"
+        >
+          <button type="submit" class="secondary">Regenerate RSS</button>
+          <span class="htmx-indicator" id="publish-regenerate-indicator">
+            <span class="spinner" aria-label="Loading"></span>
+          </span>
+        </form>
+        <form
+          hx-post="/api/podcast-feed/upload"
+          hx-target="#converted-list"
+          hx-swap="outerHTML"
+          hx-indicator="#publish-upload-indicator"
+          class="inline-form"
+        >
+          <button type="submit" class="contrast"${uploadDisabled}>Upload</button>
+          <span class="htmx-indicator" id="publish-upload-indicator">
+            <span class="spinner" aria-label="Loading"></span>
+          </span>
+        </form>
+      </div>
+
+      <div class="publish-status">
+        <span>${escapeHtml(status.message || "RSS status current.")}</span>
+        <span class="muted">Generated ${escapeHtml(formatTimestamp(status.generatedAt))}</span>
+      </div>
+      ${skipped}
+      ${uploadSummary}
+    </div>
+  `;
+};
+
+export const renderConvertedManagement = async (
+  entries: ConvertedEntry[],
+  status: PodcastFeedStatus
+) => {
+  const table = await renderConvertedTable(entries);
+  return `
+    <section id="converted-list">
+      ${renderPodcastPublishPanel(status)}
+      ${table}
     </section>
   `;
 };

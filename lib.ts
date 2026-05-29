@@ -41,6 +41,17 @@ export type ConvertedEntry = {
   publishedAt?: string | null;
 };
 
+export type PodcastEpisodeMetadata = {
+  id: number;
+  episode_title: string | null;
+  episode_description: string | null;
+  published_at: string | null;
+  duration_secs: number | null;
+  feed_title: string | null;
+  feed_description: string | null;
+  feed_image_url: string | null;
+};
+
 // ─── Text utilities ───────────────────────────────────────
 export const escapeHtml = (str: string): string =>
   str
@@ -189,6 +200,21 @@ export const selectEpisodeWithFeed = db.prepare(
     episodes.title AS episode_title,
     episodes.published_at AS published_at,
     feeds.title AS feed_title
+  FROM episodes
+  JOIN feeds ON feeds.id = episodes.feed_id
+  WHERE episodes.id = ?`
+);
+
+export const selectPodcastEpisodeMetadata = db.prepare(
+  `SELECT
+    episodes.id,
+    episodes.title AS episode_title,
+    episodes.description AS episode_description,
+    episodes.published_at AS published_at,
+    episodes.duration_secs AS duration_secs,
+    feeds.title AS feed_title,
+    feeds.description AS feed_description,
+    feeds.image_url AS feed_image_url
   FROM episodes
   JOIN feeds ON feeds.id = episodes.feed_id
   WHERE episodes.id = ?`

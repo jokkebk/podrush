@@ -4,6 +4,7 @@ import {
   serveIndex, serveFeedHtml, serveConvertedHtml,
   listFeeds, refreshFeedsNow, createFeed, updateFeedShortNameHandler,
   feedDetail, listConverted, retagConverted, deleteConverted,
+  regeneratePodcastFeedHandler, uploadPodcastFeedHandler,
   convertEpisode, serveMediaFile, serveStaticFile, serveFavicon,
   fallbackNotFound,
 } from "./handlers";
@@ -29,6 +30,8 @@ if (import.meta.main) {
       "/api/converted": { GET: listConverted },
       "/api/converted/retag": { POST: retagConverted },
       "/api/converted/delete": { POST: deleteConverted },
+      "/api/podcast-feed/regenerate": { POST: regeneratePodcastFeedHandler },
+      "/api/podcast-feed/upload": { POST: uploadPodcastFeedHandler },
       "/api/episodes/:id/convert": { POST: convertEpisode },
       "/static/*": { GET: serveStaticFile },
       "/media/*": { GET: serveMediaFile },

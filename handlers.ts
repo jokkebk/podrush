@@ -17,9 +17,15 @@ import {
 } from "./audio";
 import {
   renderFeeds, renderFeedShortNameForm, renderEpisodeList, renderFeedDetail,
-  renderConvertedRow, renderConvertedTable,
+  renderConvertedRow, renderConvertedManagement,
 } from "./renderers";
 import { serveFeedsPage, serveFeedDetailPage, serveConvertedPage } from "./layout";
+import {
+  generatePodcastFeed,
+  parseConvertedPodcastFilename,
+  uploadConvertedMedia,
+  type PodcastFeedStatus,
+} from "./podcastFeed";
 
 // ─── Data helpers ─────────────────────────────────────────
 function getFeeds(): FeedRow[] {
@@ -113,9 +119,7 @@ const listConvertedByEpisode = (): Record<number, Record<string, string>> => {
 };
 
 const parseConvertedFilename = (name: string) => {
-  const match = name.match(/-id(\d+)-([0-9.]+)x\.mp3$/);
-  if (!match) return null;
-  return { episodeId: Number(match[1]), speed: Number(match[2]) };
+  return parseConvertedPodcastFilename(name);
 };
 
 const listConvertedFiles = (): ConvertedEntry[] => {
@@ -155,6 +159,38 @@ const listConvertedFiles = (): ConvertedEntry[] => {
   return rows;
 };
 
+const regeneratePodcastFeedSafe = (message = "RSS regenerated."): PodcastFeedStatus => {
+  try {
+    return generatePodcastFeed(message);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    log("Podcast RSS generation failed", { message: errorMessage });
+    return {
+      feedPath: `${CONVERTED_DIR}/podrush-feed.xml`,
+      feedFilename: "podrush-feed.xml",
+      publicFeedUrl: "",
+      publicBaseUrl: "",
+      configuredPublicBaseUrl: false,
+      uploadTarget: "",
+      configuredUploadTarget: false,
+      generatedAt: new Date().toISOString(),
+      itemCount: 0,
+      unmatchedCount: 0,
+      matchedFileCount: 0,
+      skippedFiles: [],
+      message: `RSS generation failed: ${errorMessage}`,
+    };
+  }
+};
+
+const renderConvertedManagementHtml = async (message = "RSS regenerated.") => {
+  const entries = listConvertedFiles().filter((entry) =>
+    entry.filename.toLowerCase().endsWith(".mp3")
+  );
+  const status = regeneratePodcastFeedSafe(message);
+  return renderConvertedManagement(entries, status);
+};
+
 // ─── Route handlers ───────────────────────────────────────
 async function addFeed(request: Request) {
   const form = await request.formData();
@@ -173,7 +209,7 @@ async function addFeed(request: Request) {
     return htmlResponse("<p>Invalid URL format</p>", 400);
   }
 
-  const existing = findFeedByUrl.get(url);
+  const existing = findFeedByUrl.get(url) as { id: number } | undefined;
   let feedId = existing?.id as number | undefined;
   if (!existing) {
     const result = insertFeed.run(url);
@@ -273,10 +309,24 @@ export const feedDetail = async (request: Request) => {
 
 export const listConverted = async (request: Request) => {
   logRequest(request);
+  const html = await renderConvertedManagementHtml("RSS regenerated from current files.");
+  return htmlResponse(html);
+};
+
+export const regeneratePodcastFeedHandler = async (request: Request) => {
+  logRequest(request);
+  const html = await renderConvertedManagementHtml("RSS regenerated.");
+  return htmlResponse(html);
+};
+
+export const uploadPodcastFeedHandler = async (request: Request) => {
+  logRequest(request);
+  let status = regeneratePodcastFeedSafe("RSS regenerated before upload.");
+  status = await uploadConvertedMedia(status);
   const entries = listConvertedFiles().filter((entry) =>
     entry.filename.toLowerCase().endsWith(".mp3")
   );
-  const html = await renderConvertedTable(entries);
+  const html = await renderConvertedManagement(entries, status);
   return htmlResponse(html);
 };
 
@@ -285,26 +335,26 @@ export const retagConverted = async (request: Request) => {
   const form = await request.formData();
   const rawFilename = form.get("filename");
   const filename = typeof rawFilename === "string" ? rawFilename : "";
-  if (!filename) return htmlResponse("<tr><td colspan='4'>Missing filename</td></tr>", 400);
+  if (!filename) return htmlResponse("<tr><td colspan='3'>Missing filename</td></tr>", 400);
   if (filename.includes("/") || filename.includes("\\")) {
-    return htmlResponse("<tr><td colspan='4'>Invalid filename</td></tr>", 400);
+    return htmlResponse("<tr><td colspan='3'>Invalid filename</td></tr>", 400);
   }
 
   const parsed = parseConvertedFilename(filename);
   if (!parsed || !Number.isFinite(parsed.episodeId)) {
-    return htmlResponse("<tr><td colspan='4'>Unmatched filename</td></tr>", 400);
+    return htmlResponse("<tr><td colspan='3'>Unmatched filename</td></tr>", 400);
   }
 
   const entry = listConvertedFiles().find((item) => item.filename === filename);
   if (!entry?.episodeId) {
-    return htmlResponse("<tr><td colspan='4'>File not found</td></tr>", 404);
+    return htmlResponse("<tr><td colspan='3'>File not found</td></tr>", 404);
   }
 
   const details = selectEpisodeWithFeed.get(entry.episodeId) as
     | { episode_title: string | null; feed_title: string | null; published_at: string | null }
     | undefined;
   if (!details) {
-    return htmlResponse("<tr><td colspan='4'>Missing episode data</td></tr>", 404);
+    return htmlResponse("<tr><td colspan='3'>Missing episode data</td></tr>", 404);
   }
 
   const tags = {
@@ -317,6 +367,7 @@ export const retagConverted = async (request: Request) => {
 
   try {
     await writeId3Tags(entry.path, tags);
+    regeneratePodcastFeedSafe("RSS regenerated after retag.");
     const updatedTags = await readId3Tags(entry.path);
     return htmlResponse(renderConvertedRow(entry, updatedTags, "Updated"));
   } catch (err) {
@@ -331,17 +382,17 @@ export const deleteConverted = async (request: Request) => {
   const form = await request.formData();
   const rawFilename = form.get("filename");
   const filename = typeof rawFilename === "string" ? rawFilename : "";
-  if (!filename) return htmlResponse("<tr><td colspan='4'>Missing filename</td></tr>", 400);
+  if (!filename) return htmlResponse("<tr><td colspan='3'>Missing filename</td></tr>", 400);
   if (filename.includes("/") || filename.includes("\\")) {
-    return htmlResponse("<tr><td colspan='4'>Invalid filename</td></tr>", 400);
+    return htmlResponse("<tr><td colspan='3'>Invalid filename</td></tr>", 400);
   }
   if (!filename.toLowerCase().endsWith(".mp3")) {
-    return htmlResponse("<tr><td colspan='4'>Invalid file</td></tr>", 400);
+    return htmlResponse("<tr><td colspan='3'>Invalid file</td></tr>", 400);
   }
 
   const entry = listConvertedFiles().find((item) => item.filename === filename);
   if (!entry) {
-    return htmlResponse("<tr><td colspan='4'>File not found</td></tr>", 404);
+    return htmlResponse("<tr><td colspan='3'>File not found</td></tr>", 404);
   }
 
   try {
@@ -349,10 +400,11 @@ export const deleteConverted = async (request: Request) => {
     if (await file.exists()) {
       await file.delete();
     }
-    return htmlResponse("<tr><td colspan='4'>Deleted</td></tr>");
+    regeneratePodcastFeedSafe("RSS regenerated after delete.");
+    return htmlResponse("<tr><td colspan='3'>Deleted</td></tr>");
   } catch (err) {
     console.error("Delete failed", err);
-    return htmlResponse("<tr><td colspan='4'>Delete failed</td></tr>", 500);
+    return htmlResponse("<tr><td colspan='3'>Delete failed</td></tr>", 500);
   }
 };
 
@@ -386,6 +438,7 @@ export const convertEpisode = async (request: Request) => {
       date: formatId3Date(episode.published_at) || undefined,
       genre: "Podcast",
     });
+    regeneratePodcastFeedSafe("RSS regenerated after conversion.");
     const filename = targetPath.split(/[/\\\\]/).pop();
     const html = `<a class="contrast" href="/media/converted/${filename}" download>Download ${speedLabel}x</a>`;
     return htmlResponse(html);

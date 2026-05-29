@@ -136,8 +136,8 @@ describe("Security Integration Tests", () => {
       // Check that single quotes are escaped
       expect(html).toContain("&#039;");
 
-      // Check that event handlers are escaped
-      expect(html).toContain("onerror=");
+      // Check that event handlers are removed from sanitized feed descriptions.
+      expect(html).not.toContain("onerror=");
       expect(html).not.toMatch(/<img[^>]*onerror="[^"]*"/);
     }, 15000); // Increase timeout for Gemini API call
 
@@ -152,9 +152,10 @@ describe("Security Integration Tests", () => {
 
       const html = await response.text();
 
-      // Verify dangerous HTML is escaped
-      expect(html).toContain("&lt;img");
-      expect(html).toContain("&quot;");
+      // Verify dangerous attributes are removed while harmless HTML may remain.
+      expect(html).toContain("<img src=x>");
+      expect(html).not.toContain("onerror=");
+      expect(html).not.toContain("&quot;alert");
     });
   });
 
