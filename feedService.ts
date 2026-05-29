@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { parseFeed } from "feedsmith";
+import { basename } from "path";
 
 export type FeedRow = {
   id: number;
@@ -21,7 +22,26 @@ type EpisodeUpsert = {
   short_name?: string | null;
 };
 
-const DB_PATH = process.env.PODRUSH_DB_PATH || process.env.DB_PATH || "db.sqlite";
+const DEFAULT_DB_PATH = "db.sqlite";
+const TEST_DB_PATH = "db.test.sqlite";
+
+const isSafeTestDbPath = (path: string) =>
+  path === ":memory:" || basename(path).toLowerCase().includes("test");
+
+const resolveDbPath = () => {
+  const explicitPath = process.env.PODRUSH_DB_PATH || process.env.DB_PATH;
+  const path = explicitPath || (process.env.NODE_ENV === "test" ? TEST_DB_PATH : DEFAULT_DB_PATH);
+
+  if (process.env.NODE_ENV === "test" && !isSafeTestDbPath(path)) {
+    throw new Error(
+      `Refusing to run tests against DB path "${path}". Test DB paths must include "test" or use ":memory:".`
+    );
+  }
+
+  return path;
+};
+
+const DB_PATH = resolveDbPath();
 export const db = new Database(DB_PATH);
 
 // Keep schema creation in TS too so Bun entrypoint mirrors Python init.
