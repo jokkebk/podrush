@@ -72,9 +72,16 @@ describe("Security Integration Tests", () => {
     // Give fixture server time to start
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    // Start the main app server
+    // Start the main app server. Gemini keys are stripped so shorthand naming
+    // uses the local slugify fallback instead of a slow/flaky network call.
     appServer = spawn(["bun", "run", "index.ts"], {
-      env: { ...process.env, PODRUSH_DB_PATH: TEST_DB_PATH, PORT: String(appPort) },
+      env: {
+        ...process.env,
+        PODRUSH_DB_PATH: TEST_DB_PATH,
+        PORT: String(appPort),
+        GEMINI_API_KEY: "",
+        GOOGLE_API_KEY: "",
+      },
     });
     await waitForServer(`${baseUrl}/api/feeds`);
   });
