@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Podrush is a podcast download manager and audio converter built with Bun + TypeScript + HTMX + SQLite. It downloads podcast episodes from RSS feeds and creates variable-speed MP3s (1.1x–2.0x) using ffmpeg, optimized for devices like Garmin watches.
+Podrush is a podcast download manager and audio converter built with Bun + TypeScript + HTMX + SQLite. It downloads podcast episodes from RSS feeds and creates variable-speed MP3s (1.1x–2.0x) using ffmpeg, optimized for devices like Garmin watches. Users can also upload their own MP3s: they become episodes under a synthetic `custom://uploads` feed (never refreshed) and flow through the same conversion and private-RSS pipeline.
 
 ## Commands
 

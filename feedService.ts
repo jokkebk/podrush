@@ -101,6 +101,32 @@ const upsertEpisodeStmt = db.prepare(
 
 const USER_AGENT = process.env.USER_AGENT || "podrush/0.1";
 const DEFAULT_REFRESH_MAX_AGE_HOURS = 24;
+
+export const CUSTOM_FEED_URL = "custom://uploads";
+export const CUSTOM_FEED_TITLE = "Custom uploads";
+export const isCustomFeedUrl = (url: string) => url === CUSTOM_FEED_URL;
+const isHttpFeedUrl = (url: string) => /^https?:\/\//i.test(url);
+
+const selectFeedByUrlStmt = db.prepare(
+  `SELECT id, url, title, description, image_url, last_checked, short_name
+   FROM feeds WHERE url = ?`
+);
+
+const insertCustomFeedStmt = db.prepare(
+  `INSERT INTO feeds (url, title, description, last_checked) VALUES (?, ?, ?, ?)`
+);
+
+export const ensureCustomFeed = (): FeedRow => {
+  const existing = selectFeedByUrlStmt.get(CUSTOM_FEED_URL) as FeedRow | undefined;
+  if (existing) return existing;
+  insertCustomFeedStmt.run(
+    CUSTOM_FEED_URL,
+    CUSTOM_FEED_TITLE,
+    "MP3 files uploaded directly in podrush.",
+    new Date().toISOString()
+  );
+  return selectFeedByUrlStmt.get(CUSTOM_FEED_URL) as FeedRow;
+};
 const refreshMaxAgeHoursFromEnv = Number(
   process.env.FEED_REFRESH_MAX_AGE_HOURS || process.env.REFRESH_MAX_AGE_HOURS
 );
@@ -283,6 +309,10 @@ const markFeedChecked = (feedId: number) => {
 };
 
 export async function refreshFeed(feed: FeedRow | { id: number; url: string }) {
+  if (!isHttpFeedUrl(feed.url)) {
+    // Local-only feeds (e.g. custom uploads) have nothing to fetch.
+    return;
+  }
   let response: Response;
   try {
     const { fetchWithTimeout } = await import("./lib");
@@ -340,6 +370,7 @@ export async function refreshFeed(feed: FeedRow | { id: number; url: string }) {
 }
 
 export const isFeedStale = (feed: FeedRow, maxAgeHours = REFRESH_MAX_AGE_HOURS) => {
+  if (!isHttpFeedUrl(feed.url)) return false;
   const thresholdMs = maxAgeHours * 60 * 60 * 1000;
   const now = Date.now();
   const lastCheckedMs = feed.last_checked ? Date.parse(feed.last_checked) : NaN;

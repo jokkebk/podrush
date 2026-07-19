@@ -77,6 +77,20 @@ export const runProcess = async (cmd: string[], label: string) => {
 };
 
 // ─── ID3 tags ─────────────────────────────────────────────
+export const probeAudioDurationSecs = async (filePath: string): Promise<number | null> => {
+  try {
+    const output = await runProcess(
+      ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filePath],
+      "ffprobe"
+    );
+    const data = JSON.parse(output) as { format?: { duration?: string } };
+    const duration = Number.parseFloat(data?.format?.duration || "");
+    return Number.isFinite(duration) && duration > 0 ? Math.round(duration) : null;
+  } catch {
+    return null;
+  }
+};
+
 export const readId3Tags = async (filePath: string): Promise<Record<string, string>> => {
   const output = await runProcess(
     ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filePath],

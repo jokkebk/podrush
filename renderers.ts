@@ -1,4 +1,4 @@
-import { type FeedRow } from "./feedService";
+import { type FeedRow, isCustomFeedUrl } from "./feedService";
 import {
   escapeHtml, plainText, sanitizeHtml, descriptionDetails,
   formatTimestamp, formatDuration, formatSpeedLabel, formatId3Date,
@@ -195,6 +195,42 @@ export function renderEpisodeList(
   return articles + loadMore;
 }
 
+export const renderCustomUploadForm = (): string => {
+  const today = new Date().toISOString().slice(0, 10);
+  const speedCheckboxes = SPEEDS.map((speed) => {
+    const label = formatSpeedLabel(speed);
+    const checked = speed === 1.25 ? " checked" : "";
+    return `<label><input type="checkbox" name="speeds" value="${label}"${checked}> ${label}x</label>`;
+  }).join("");
+  return `
+    <details class="add-feed-details custom-upload">
+      <summary>+ Upload custom MP3</summary>
+      <form
+        hx-post="/api/custom/episodes"
+        hx-encoding="multipart/form-data"
+        hx-target="#feed-detail"
+        hx-swap="innerHTML"
+        hx-indicator="#custom-upload-indicator"
+      >
+        <label for="custom-file">MP3 file</label>
+        <input type="file" id="custom-file" name="file" accept="audio/mpeg,.mp3" required>
+        <label for="custom-title">Title (defaults to filename)</label>
+        <input type="text" id="custom-title" name="title" maxlength="120" placeholder="Episode title">
+        <label for="custom-date">Publish date</label>
+        <input type="date" id="custom-date" name="published_at" value="${today}">
+        <fieldset class="custom-upload-speeds">
+          <legend>Convert to speeds</legend>
+          ${speedCheckboxes}
+        </fieldset>
+        <button type="submit">Upload</button>
+        <span class="htmx-indicator" id="custom-upload-indicator">
+          <span class="spinner" aria-label="Uploading"></span>
+        </span>
+      </form>
+    </details>
+  `;
+};
+
 export function renderFeedDetail(
   feed: FeedRow,
   episodes: EpisodeRow[],
@@ -207,12 +243,13 @@ export function renderFeedDetail(
       <div>${sanitizeHtml(feed.description || "")}</div>
     </header>
   `;
+  const uploadForm = isCustomFeedUrl(feed.url) ? renderCustomUploadForm() : "";
 
   if (!episodes.length) {
-    return `<section>${header}<p>No episodes yet for this feed.</p></section>`;
+    return `<section>${header}${uploadForm}<p>No episodes yet for this feed.</p></section>`;
   }
 
-  return `<section>${header}${renderEpisodeList(feed.id, episodes, conversions, 0)}</section>`;
+  return `<section>${header}${uploadForm}${renderEpisodeList(feed.id, episodes, conversions, 0)}</section>`;
 }
 
 const renderTagList = (tags: Record<string, string>) => {

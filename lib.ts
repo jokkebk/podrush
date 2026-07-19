@@ -222,9 +222,15 @@ export const selectPodcastEpisodeMetadata = db.prepare(
 
 export const findFeedByUrl = db.prepare("SELECT id FROM feeds WHERE url = ?");
 export const insertFeed = db.prepare("INSERT INTO feeds (url, last_checked) VALUES (?, NULL)");
+export const insertEpisode = db.prepare(
+  `INSERT INTO episodes (feed_id, guid, title, description, audio_url, published_at, duration_secs)
+   VALUES (?, ?, ?, ?, ?, ?, ?)`
+);
+export const deleteEpisode = db.prepare("DELETE FROM episodes WHERE id = ?");
 export const updateFeedShortName = db.prepare("UPDATE feeds SET short_name = ? WHERE id = ?");
 export const updateEpisodeShortName = db.prepare("UPDATE episodes SET short_name = ? WHERE id = ?");
 export const updateEpisodeLocalPath = db.prepare("UPDATE episodes SET local_path = ? WHERE id = ?");
+export const updateEpisodeDuration = db.prepare("UPDATE episodes SET duration_secs = ? WHERE id = ?");
 
 // ─── Race condition guards ────────────────────────────────
 export const conversionsInProgress = new Set<string>();

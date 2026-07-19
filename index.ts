@@ -1,11 +1,12 @@
 import { serve } from "bun";
 import { MEDIA_DIR, CONVERTED_DIR, ORIGINAL_DIR, hasGeminiKey, env, log } from "./lib";
+import { ensureCustomFeed } from "./feedService";
 import {
   serveIndex, serveFeedHtml, serveConvertedHtml,
   listFeeds, refreshFeedsNow, createFeed, updateFeedShortNameHandler,
   feedDetail, listConverted, retagConverted, deleteConverted,
   regeneratePodcastFeedHandler, uploadPodcastFeedHandler,
-  convertEpisode, serveMediaFile, serveStaticFile, serveFavicon,
+  convertEpisode, uploadCustomEpisode, serveMediaFile, serveStaticFile, serveFavicon,
   fallbackNotFound,
 } from "./handlers";
 
@@ -17,6 +18,8 @@ if (import.meta.main) {
   const port = Number.isFinite(configuredPort) && configuredPort > 0
     ? Math.trunc(configuredPort)
     : 3000;
+  const customFeed = ensureCustomFeed();
+  log("Custom uploads feed ready", { feedId: customFeed.id });
   serve({
     port,
     routes: {
@@ -33,6 +36,7 @@ if (import.meta.main) {
       "/api/podcast-feed/regenerate": { POST: regeneratePodcastFeedHandler },
       "/api/podcast-feed/upload": { POST: uploadPodcastFeedHandler },
       "/api/episodes/:id/convert": { POST: convertEpisode },
+      "/api/custom/episodes": { POST: uploadCustomEpisode },
       "/static/*": { GET: serveStaticFile },
       "/media/*": { GET: serveMediaFile },
       "/favicon.ico": { GET: serveFavicon },

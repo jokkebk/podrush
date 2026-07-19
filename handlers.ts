@@ -1,19 +1,21 @@
 import { join, resolve } from "path";
-import { readdirSync, statSync } from "fs";
+import { readdirSync, statSync, unlinkSync } from "fs";
 import {
-  refreshFeed, refreshAllFeeds, isFeedStale, REFRESH_MAX_AGE_HOURS, type FeedRow,
+  refreshFeed, refreshAllFeeds, isFeedStale, ensureCustomFeed,
+  REFRESH_MAX_AGE_HOURS, CUSTOM_FEED_URL, type FeedRow,
 } from "./feedService";
 import {
-  MEDIA_DIR, CONVERTED_DIR, log,
+  MEDIA_DIR, CONVERTED_DIR, ORIGINAL_DIR, MAX_AUDIO_SIZE, log,
   htmlResponse, notFound, logRequest, getRouteParam,
   selectFeeds, selectFeedById, selectEpisodesForFeed, selectEpisodeById,
-  selectEpisodeWithFeed, findFeedByUrl, insertFeed, updateFeedShortName,
+  selectEpisodeWithFeed, findFeedByUrl, insertFeed, insertEpisode, deleteEpisode,
+  updateFeedShortName, updateEpisodeLocalPath, updateEpisodeDuration,
   formatSpeedLabel, formatId3Date, slugify,
   type EpisodeRow, type ConvertedEntry,
 } from "./lib";
 import {
   ensureFeedShortName, ensureOriginalAudio, buildFilenameBase, convertAudio,
-  readId3Tags, writeId3Tags,
+  readId3Tags, writeId3Tags, probeAudioDurationSecs,
 } from "./audio";
 import {
   renderFeeds, renderFeedShortNameForm, renderEpisodeList, renderFeedDetail,
@@ -406,6 +408,107 @@ export const deleteConverted = async (request: Request) => {
     console.error("Delete failed", err);
     return htmlResponse("<tr><td colspan='3'>Delete failed</td></tr>", 500);
   }
+};
+
+export const uploadCustomEpisode = async (request: Request) => {
+  logRequest(request);
+  const form = await request.formData();
+  const uploaded = form.get("file");
+  if (!(uploaded instanceof File) || uploaded.size === 0) {
+    return htmlResponse("<p>Missing MP3 file</p>", 400);
+  }
+  if (uploaded.size > MAX_AUDIO_SIZE) {
+    return htmlResponse(
+      `<p>File too large (max ${Math.floor(MAX_AUDIO_SIZE / 1024 / 1024)} MB)</p>`,
+      400
+    );
+  }
+  const originalName = (uploaded.name || "").trim() || "custom.mp3";
+  if (!originalName.toLowerCase().endsWith(".mp3")) {
+    return htmlResponse("<p>Only .mp3 files are supported</p>", 400);
+  }
+
+  const rawTitle = form.get("title");
+  const title =
+    (typeof rawTitle === "string" ? rawTitle.trim() : "") ||
+    originalName.replace(/\.mp3$/i, "").trim() ||
+    "Custom episode";
+
+  let publishedAt = new Date().toISOString();
+  const rawDate = form.get("published_at");
+  if (typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())) {
+    const parsed = new Date(`${rawDate.trim()}T00:00:00Z`);
+    if (!Number.isNaN(parsed.getTime())) publishedAt = parsed.toISOString();
+  }
+
+  const speeds = form
+    .getAll("speeds")
+    .map((value) => (typeof value === "string" ? Number.parseFloat(value) : NaN))
+    .filter((speed) => Number.isFinite(speed) && speed > 0);
+
+  const feed = ensureCustomFeed();
+  const guid = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  let episodeId: number | null = null;
+  const createdPaths: string[] = [];
+
+  try {
+    const result = insertEpisode.run(
+      feed.id,
+      guid,
+      title,
+      "Uploaded directly to podrush.",
+      `${CUSTOM_FEED_URL}/${guid}`,
+      publishedAt,
+      null
+    );
+    episodeId = Number(result.lastInsertRowid);
+    const episode = selectEpisodeById.get(episodeId) as EpisodeRow | undefined;
+    if (!episode) throw new Error("Failed to load new episode");
+
+    const base = await buildFilenameBase(feed, episode);
+    const originalPath = join(ORIGINAL_DIR, `${base}-orig.mp3`);
+    await Bun.write(originalPath, await uploaded.arrayBuffer());
+    createdPaths.push(originalPath);
+    updateEpisodeLocalPath.run(originalPath, episodeId);
+
+    const durationSecs = await probeAudioDurationSecs(originalPath);
+    if (durationSecs !== null) {
+      updateEpisodeDuration.run(durationSecs, episodeId);
+      episode.duration_secs = durationSecs;
+    }
+
+    for (const speed of speeds) {
+      const speedLabel = formatSpeedLabel(speed);
+      const targetPath = join(CONVERTED_DIR, `${base}-${speedLabel}x.mp3`);
+      await convertAudio(originalPath, targetPath, speed);
+      createdPaths.push(targetPath);
+      await writeId3Tags(targetPath, {
+        title: episode.title || undefined,
+        artist: feed.title || undefined,
+        album: feed.title || undefined,
+        date: formatId3Date(episode.published_at) || undefined,
+        genre: "Podcast",
+      });
+    }
+    regeneratePodcastFeedSafe("RSS regenerated after custom upload.");
+  } catch (err) {
+    console.error("Custom upload failed", err);
+    if (episodeId !== null) deleteEpisode.run(episodeId);
+    for (const path of createdPaths) {
+      try {
+        unlinkSync(path);
+      } catch {
+        // Ignore cleanup errors after failed upload.
+      }
+    }
+    regeneratePodcastFeedSafe("RSS regenerated after failed custom upload.");
+    return htmlResponse("<p>Upload failed</p>", 500);
+  }
+
+  log("Custom episode uploaded", { episodeId, title, speeds });
+  const data = await getFeedDetail(feed.id);
+  if (!data) return notFound();
+  return htmlResponse(renderFeedDetail(data.feed, data.episodes, data.conversions));
 };
 
 export const convertEpisode = async (request: Request) => {
