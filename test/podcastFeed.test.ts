@@ -7,6 +7,9 @@ import {
   buildPodcastFeedItems,
   buildPublicFileUrl,
   buildRsyncArgs,
+  ensureFeedCoverImage,
+  FEED_COVER_FILENAME,
+  FEED_COVER_SOURCE_PATH,
   generatePodcastFeed,
   listConvertedPodcastFiles,
   parseConvertedPodcastFilename,
@@ -101,17 +104,70 @@ describe("podcast feed generation", () => {
     expect(items[0]?.enclosureUrl).toBe(
       "https://example.com/data/podrush/20260320-feed-episode-id10-1.5x.mp3"
     );
+    expect(items[0]?.durationSecs).toBe(82);
 
     const rss = renderPodcastRss(items, {
       feedTitle: "Private & Feed",
       feedDescription: "Escaped <description>",
       publicBaseUrl: "https://example.com/data/podrush",
       feedFilename: "podrush-feed.xml",
+      coverFilename: "cover.png",
     });
+    expect(rss).toContain('xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"');
     expect(rss).toContain("<title>Private &amp; Feed</title>");
     expect(rss).toContain("Episode 10 &amp; friends (1.5x)");
     expect(rss).toContain('type="audio/mpeg"');
+    expect(rss).toContain("<itunes:duration>82</itunes:duration>");
+    expect(rss).toContain(
+      '<itunes:image href="https://example.com/data/podrush/cover.png"/>'
+    );
+    expect(rss).toContain("<url>https://example.com/data/podrush/cover.png</url>");
     expect(rss).not.toContain("id99");
+  });
+
+  test("omits duration and image tags when metadata is missing", () => {
+    const now = new Date("2026-03-21T12:00:00.000Z");
+    const items = buildPodcastFeedItems(
+      [
+        {
+          filename: "20260320-feed-episode-id10-1.5x.mp3",
+          path: "/tmp/one.mp3",
+          episodeId: 10,
+          speed: 1.5,
+          speedLabel: "1.5",
+          size: 42,
+          mtime: now,
+        },
+      ],
+      "https://example.com/data/podrush",
+      (episodeId) => ({ ...metadata(episodeId), duration_secs: null })
+    );
+
+    expect(items[0]?.durationSecs).toBeNull();
+    const rss = renderPodcastRss(items, {
+      feedTitle: "Private Feed",
+      feedDescription: "Description",
+      publicBaseUrl: "https://example.com/data/podrush",
+      feedFilename: "podrush-feed.xml",
+    });
+    expect(rss).not.toContain("<itunes:duration>");
+    expect(rss).not.toContain("<itunes:image");
+    expect(rss).not.toContain("<image>");
+  });
+
+  test("copies the feed cover image into the converted directory", () => {
+    const dir = tempDir();
+    try {
+      const filename = ensureFeedCoverImage(dir);
+      expect(filename).toBe(FEED_COVER_FILENAME);
+      const copied = readFileSync(join(dir, FEED_COVER_FILENAME));
+      const source = readFileSync(FEED_COVER_SOURCE_PATH);
+      expect(copied.equals(source)).toBe(true);
+      // Second call with an up-to-date copy still succeeds.
+      expect(ensureFeedCoverImage(dir)).toBe(FEED_COVER_FILENAME);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("writes static RSS from fixture DB metadata and reconciles disk deletions", () => {
@@ -152,6 +208,10 @@ describe("podcast feed generation", () => {
       let rss = readFileSync(join(dir, "test-feed.xml"), "utf8");
       expect(rss).toContain("Fixture Episode (1.5x)");
       expect(rss).toContain(filename);
+      expect(rss).toContain("<itunes:duration>400</itunes:duration>");
+      expect(rss).toContain(
+        '<itunes:image href="https://example.com/data/podrush/cover.png"/>'
+      );
 
       unlinkSync(join(dir, filename));
       const second = generatePodcastFeed("test", dir);

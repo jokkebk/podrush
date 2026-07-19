@@ -40,6 +40,8 @@ PODRUSH_FEED_FILENAME=podrush-feed.xml
 
 The feed is regenerated from disk when the Episodes / Publish page loads and after convert/delete/retag actions. Every matching converted MP3 becomes a separate RSS item, and metadata comes from SQLite by parsing the episode id in the filename. Files deleted from disk disappear from the next generated feed.
 
+Each item includes an `<itunes:duration>` (the source episode duration divided by the conversion speed, matching the actual MP3 length). The channel includes `<image>` / `<itunes:image>` cover art: `static/cover.png` is copied into `media/converted/` on every feed regeneration, so it is mirrored by rsync alongside the MP3s. Replace `static/cover.png` to customize the cover.
+
 Upload uses `rsync -av --delete --exclude .DS_Store media/converted/ "$PODRUSH_UPLOAD_TARGET"` so the remote directory mirrors local converted files.
 
 Spotify/Garmin note: this creates a normal static RSS feed for testing private podcast ingestion. Spotify's Garmin app supports offline podcast downloads, but arbitrary private RSS ingestion may not be supported directly by Spotify.
