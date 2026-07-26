@@ -22,6 +22,18 @@ if (import.meta.main) {
   log("Custom uploads feed ready", { feedId: customFeed.id });
   serve({
     port,
+    // Bun defaults to a 10 second idle timeout, which is far too short for the
+    // long synchronous handlers here: a full podcast mirror to object storage
+    // moves hundreds of megabytes and takes minutes, and conversions are not
+    // quick either. The request holds an idle connection for the whole job, so
+    // the socket closed mid-upload and the UI reported failure even though the
+    // spawned mirror ran to completion in the background.
+    //
+    // 255 is Bun's maximum. It covers a full re-upload on a normal connection
+    // and every incremental sync after it, but it is a ceiling rather than a
+    // real fix: the durable answer is to start the job, return immediately, and
+    // let the page poll for status.
+    idleTimeout: 255,
     routes: {
       "/": { GET: serveIndex },
       "/feed/:id": { GET: serveFeedHtml },
