@@ -6,13 +6,16 @@ import { db } from "../feedService";
 import {
   buildPodcastFeedItems,
   buildPublicFileUrl,
+  buildRcloneArgs,
   buildRsyncArgs,
+  buildUploadArgs,
   ensureFeedCoverImage,
   FEED_COVER_FILENAME,
   FEED_COVER_SOURCE_PATH,
   generatePodcastFeed,
   listConvertedPodcastFiles,
   parseConvertedPodcastFilename,
+  isRcloneTarget,
   renderPodcastRss,
   uploadConvertedMedia,
   xmlEscape,
@@ -230,6 +233,86 @@ describe("podcast feed generation", () => {
         Bun.env.PODRUSH_PUBLIC_BASE_URL = oldBase;
       }
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("distinguishes rclone remotes from rsync destinations", () => {
+    expect(isRcloneTarget("r2:jp-podrush/")).toBe(true);
+    expect(isRcloneTarget("r2:")).toBe(true);
+    expect(isRcloneTarget("my-remote:bucket/prefix")).toBe(true);
+
+    expect(isRcloneTarget("user@host:/data/podrush/")).toBe(false);
+    expect(isRcloneTarget("host:/data/podrush/")).toBe(false);
+    expect(isRcloneTarget("/local/path")).toBe(false);
+    expect(isRcloneTarget("")).toBe(false);
+  });
+
+  test("constructs an rclone mirror command for an R2 remote", () => {
+    const args = buildRcloneArgs("media/converted", "r2:jp-podrush/");
+    expect(args.slice(0, 4)).toEqual([
+      "rclone",
+      "sync",
+      "media/converted/",
+      "r2:jp-podrush/",
+    ]);
+    // A scoped R2 token cannot do rclone's bucket-level check.
+    expect(args).toContain("--s3-no-check-bucket");
+    // robots.txt exists only in the bucket; a root mirror would delete it.
+    expect(args).toContain("robots.txt");
+    expect(args).toContain(".DS_Store");
+  });
+
+  test("dispatches to the right mirror command for the target", () => {
+    expect(buildUploadArgs("media/converted", "r2:jp-podrush/")[0]).toBe("rclone");
+    expect(buildUploadArgs("media/converted", "user@host:/data/podrush/")[0]).toBe(
+      "rsync"
+    );
+    expect(buildUploadArgs("media/converted", "r2:jp-podrush/")).toEqual(
+      buildRcloneArgs("media/converted", "r2:jp-podrush/")
+    );
+  });
+
+  test("runs the rclone command when the target is an R2 remote", async () => {
+    const oldTarget = Bun.env.PODRUSH_UPLOAD_TARGET;
+    Bun.env.PODRUSH_UPLOAD_TARGET = "r2:jp-podrush/";
+    try {
+      const seen: string[][] = [];
+      const status = await uploadConvertedMedia(
+        {
+          feedPath: "media/converted/test-feed.xml",
+          feedFilename: "test-feed.xml",
+          publicFeedUrl: "https://podrush.example.com/test-feed.xml",
+          publicBaseUrl: "https://podrush.example.com",
+          configuredPublicBaseUrl: true,
+          uploadTarget: "r2:jp-podrush/",
+          configuredUploadTarget: true,
+          generatedAt: new Date().toISOString(),
+          itemCount: 1,
+          unmatchedCount: 0,
+          matchedFileCount: 1,
+          skippedFiles: [],
+        },
+        (args) => {
+          seen.push(args);
+          return {
+            exited: Promise.resolve(0),
+            stdout: "Transferred: 1 / 1, 100%",
+            stderr: "",
+          };
+        }
+      );
+
+      expect(seen[0]?.[0]).toBe("rclone");
+      expect(seen[0]).toEqual(buildRcloneArgs("media/converted", "r2:jp-podrush/"));
+      expect(status.message).toBe("Upload completed.");
+      expect(status.uploadSummary).toContain("Command: rclone sync");
+      expect(status.uploadSummary).toContain("Exit code: 0");
+    } finally {
+      if (oldTarget === undefined) {
+        delete Bun.env.PODRUSH_UPLOAD_TARGET;
+      } else {
+        Bun.env.PODRUSH_UPLOAD_TARGET = oldTarget;
+      }
     }
   });
 

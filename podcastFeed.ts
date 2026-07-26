@@ -358,6 +358,49 @@ export const buildRsyncArgs = (sourceDir: string, uploadTarget: string): string[
   ];
 };
 
+/**
+ * An rclone remote looks like `remote:path` — a bare name, a colon, and a path
+ * that is not absolute. An rsync destination is either `user@host:/path` or
+ * `host:/absolute/path`. The distinguishing marks are the `@` and the slash
+ * immediately after the colon.
+ */
+export const isRcloneTarget = (uploadTarget: string): boolean =>
+  !uploadTarget.includes("@") && /^[A-Za-z0-9_.-]+:(?![\\/])/.test(uploadTarget);
+
+export const buildRcloneArgs = (sourceDir: string, uploadTarget: string): string[] => {
+  const source = sourceDir.endsWith("/") ? sourceDir : `${sourceDir}/`;
+  return [
+    "rclone",
+    // `sync` mirrors, so removals propagate — the same semantics as
+    // `rsync --delete`. This directory has exactly one owner, so that is safe
+    // here, unlike a shared staging area.
+    "sync",
+    source,
+    uploadTarget,
+    "--exclude",
+    ".DS_Store",
+    "--exclude",
+    "._*",
+    // robots.txt lives only in the bucket, never in the local media directory.
+    // Without this exclude, mirroring the bucket root would delete it on every
+    // single upload.
+    "--exclude",
+    "robots.txt",
+    // An R2 token scoped to specific buckets cannot perform the bucket-level
+    // check rclone otherwise attempts.
+    "--s3-no-check-bucket",
+    "--stats-one-line",
+    "--stats",
+    "10s",
+  ];
+};
+
+/** Builds the mirror command appropriate to the configured upload target. */
+export const buildUploadArgs = (sourceDir: string, uploadTarget: string): string[] =>
+  isRcloneTarget(uploadTarget)
+    ? buildRcloneArgs(sourceDir, uploadTarget)
+    : buildRsyncArgs(sourceDir, uploadTarget);
+
 const shellQuote = (value: string): string => {
   if (/^[A-Za-z0-9_/:=.,@%+-]+$/.test(value)) return value;
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -454,7 +497,7 @@ export const uploadConvertedMedia = async (
     };
   }
 
-  const args = buildRsyncArgs(CONVERTED_DIR, config.uploadTarget);
+  const args = buildUploadArgs(CONVERTED_DIR, config.uploadTarget);
   const snapshot = collectUploadSourceSnapshot(CONVERTED_DIR, config.feedFilename);
   log("Podcast upload starting", {
     command: formatCommand(args),
