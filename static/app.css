@@ -583,6 +583,50 @@ small {
   margin-bottom: 0.1rem;
 }
 
+.add-feed-details.custom-upload summary {
+  background: var(--primary);
+  color: #fff;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.add-feed-details.custom-upload summary:hover {
+  background: var(--primary-strong);
+  color: #fff;
+}
+
+.custom-upload-hint {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin: 0.4rem 0 0.8rem;
+}
+
+.drop-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+  background: rgba(14, 116, 144, 0.12);
+  border: 3px dashed var(--primary);
+  pointer-events: none;
+}
+
+body.is-drag-over .drop-overlay {
+  display: flex;
+}
+
+.drop-overlay p {
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  color: var(--primary);
+  font-weight: 600;
+  padding: 0.8rem 1.6rem;
+}
+
 .custom-upload-speeds {
   display: flex;
   align-items: center;

@@ -205,12 +205,14 @@ export const renderCustomUploadForm = (): string => {
   return `
     <details class="add-feed-details custom-upload">
       <summary>+ Upload custom MP3</summary>
+      <p class="custom-upload-hint">or drag &amp; drop an MP3 anywhere on this page</p>
       <form
         hx-post="/api/custom/episodes"
         hx-encoding="multipart/form-data"
         hx-target="#feed-detail"
         hx-swap="innerHTML"
         hx-indicator="#custom-upload-indicator"
+        data-custom-upload
       >
         <label for="custom-file">MP3 file</label>
         <input type="file" id="custom-file" name="file" accept="audio/mpeg,.mp3" required>
@@ -228,6 +230,9 @@ export const renderCustomUploadForm = (): string => {
         </span>
       </form>
     </details>
+    <div class="drop-overlay" data-drop-overlay>
+      <p>Drop MP3 to upload</p>
+    </div>
   `;
 };
 

@@ -75,6 +75,57 @@
     }
   };
 
+  const customUploadForm = () => document.querySelector("[data-custom-upload]");
+
+  const hasDraggedFiles = (event) => {
+    const types = event.dataTransfer && event.dataTransfer.types;
+    return Boolean(types && Array.from(types).includes("Files"));
+  };
+
+  const setupCustomUploadDrop = () => {
+    let dragDepth = 0;
+
+    document.addEventListener("dragenter", (event) => {
+      if (!customUploadForm() || !hasDraggedFiles(event)) return;
+      dragDepth += 1;
+      document.body.classList.add("is-drag-over");
+    });
+
+    document.addEventListener("dragover", (event) => {
+      if (!customUploadForm() || !hasDraggedFiles(event)) return;
+      event.preventDefault();
+    });
+
+    document.addEventListener("dragleave", (event) => {
+      if (!customUploadForm() || !hasDraggedFiles(event)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) document.body.classList.remove("is-drag-over");
+    });
+
+    document.addEventListener("drop", (event) => {
+      const form = customUploadForm();
+      if (!(form instanceof HTMLFormElement) || !hasDraggedFiles(event)) return;
+      event.preventDefault();
+      dragDepth = 0;
+      document.body.classList.remove("is-drag-over");
+
+      const files = Array.from(event.dataTransfer.files || []);
+      const file = files.find((f) => f.name.toLowerCase().endsWith(".mp3"));
+      if (!file) return;
+
+      const input = form.querySelector('input[type="file"][name="file"]');
+      if (!(input instanceof HTMLInputElement)) return;
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+
+      const details = form.closest("details");
+      if (details instanceof HTMLDetailsElement) details.open = true;
+
+      form.requestSubmit();
+    });
+  };
+
   const initUi = (root = document) => {
     updateFeedDescriptionToggles(root);
     updateEpisodeDescriptions(root);
@@ -102,6 +153,7 @@
 
   const boot = () => {
     setupFeedDetailFetch();
+    setupCustomUploadDrop();
     initUi(document);
   };
 
