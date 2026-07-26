@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun --hot run index.ts",
+    "dev": "printf '\\033]0;Podrush\\a' && bun --hot run index.ts",
     "test": "PODRUSH_DB_PATH=db.test.sqlite bun test"
   },
   "devDependencies": {
