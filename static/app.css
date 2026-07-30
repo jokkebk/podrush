@@ -306,7 +306,7 @@ section[id="converted-list"] {
 .garmin-file-list {
   display: grid;
   gap: 0.35rem;
-  max-height: 18rem;
+  max-height: min(60vh, 48rem);
   overflow-y: auto;
 }
 
@@ -1029,5 +1029,9 @@ article > header h3 {
 
   .garmin-columns {
     grid-template-columns: 1fr;
+  }
+
+  .garmin-file-list {
+    max-height: 50vh;
   }
 }
