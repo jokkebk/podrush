@@ -1,3 +1,5 @@
+import { renderGarminIntro } from "./renderers";
+
 const pageShell = (main: string): string => `<!doctype html>
 <html lang="en">
   <head>
@@ -18,6 +20,7 @@ const pageShell = (main: string): string => `<!doctype html>
           <ul>
             <li><a href="/">Feeds</a></li>
             <li><a href="/converted">Episodes / Publish</a></li>
+            <li><a href="/garmin">Garmin</a></li>
           </ul>
         </nav>
       </div>
@@ -71,7 +74,7 @@ const feedDetailContent = `      <div
 
 const convertedContent = `      <hgroup>
         <h1>Episodes / Publish</h1>
-        <p>Review converted files, generate the private RSS feed, and mirror it to hosting.</p>
+        <p>Review converted files and publish a private podcast feed.</p>
       </hgroup>
 
       <div
@@ -83,6 +86,13 @@ const convertedContent = `      <hgroup>
         Loading converted files\u2026
       </div>`;
 
+const garminContent = `      <hgroup>
+        <h1>Garmin</h1>
+        <p>Manage podcasts on a Garmin music watch over USB.</p>
+      </hgroup>
+
+      ${renderGarminIntro()}`;
+
 const htmlHeaders = { "Content-Type": "text/html; charset=utf-8" };
 
 export const serveFeedsPage = () =>
@@ -93,3 +103,6 @@ export const serveFeedDetailPage = () =>
 
 export const serveConvertedPage = () =>
   new Response(pageShell(convertedContent), { headers: htmlHeaders });
+
+export const serveGarminPage = () =>
+  new Response(pageShell(garminContent), { headers: htmlHeaders });

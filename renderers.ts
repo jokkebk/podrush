@@ -7,6 +7,7 @@ import {
 } from "./lib";
 import { readId3Tags } from "./audio";
 import { type PodcastFeedStatus } from "./podcastFeed";
+import { type GarminState } from "./garmin";
 
 export const renderFeedShortNameForm = (feed: FeedRow, message = ""): string => {
   const shortName = escapeHtml(feed.short_name || "");
@@ -460,6 +461,191 @@ export const renderPodcastPublishPanel = (status: PodcastFeedStatus): string => 
       ${skipped}
       ${uploadSummary}
     </div>
+  `;
+};
+
+const formatFileSize = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes < 0) return "Unknown";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const precision = unit === 0 || value >= 100 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unit]}`;
+};
+
+export const renderGarminIntro = (): string => `
+  <section id="garmin-panel" class="garmin-panel garmin-intro">
+    <div>
+      <small>Direct USB transfer</small>
+      <h2>Connect your watch</h2>
+      <p>
+        Plug in your Garmin with a USB data cable and choose its MTP or file
+        transfer mode if prompted.
+      </p>
+      <p class="muted">
+        Podrush transfers converted MP3s directly. Garmin Express, Apple Music,
+        Rosetta, Homebrew, and administrator access are not required.
+      </p>
+    </div>
+    <form
+      hx-get="/api/garmin"
+      hx-target="#garmin-panel"
+      hx-swap="outerHTML"
+      hx-indicator="#garmin-connect-indicator"
+      class="inline-form"
+    >
+      <button type="submit">Connect to watch</button>
+      <span class="htmx-indicator" id="garmin-connect-indicator">
+        <span class="spinner" aria-label="Connecting"></span>
+        Preparing direct transfer…
+      </span>
+    </form>
+    <p class="muted garmin-intro__build-note">
+      On first connect, Podrush downloads verified open-source MTP dependencies
+      and builds a native helper in its local media cache.
+    </p>
+  </section>
+`;
+
+export const renderGarminPanel = (
+  state: GarminState,
+  localEntries: ConvertedEntry[]
+): string => {
+  const refreshLabel = state.connected ? "Refresh watch" : "Reconnect";
+  const refreshForm = `
+    <form
+      hx-get="/api/garmin"
+      hx-target="#garmin-panel"
+      hx-swap="outerHTML"
+      hx-indicator="#garmin-refresh-indicator"
+      class="inline-form"
+    >
+      <button type="submit" class="secondary">${refreshLabel}</button>
+      <span class="htmx-indicator" id="garmin-refresh-indicator">
+        <span class="spinner" aria-label="Refreshing"></span>
+      </span>
+    </form>
+  `;
+
+  if (!state.connected) {
+    return `
+      <section id="garmin-panel" class="garmin-panel garmin-panel--disconnected">
+        <div>
+          <small>Garmin watch</small>
+          <h2>Not available</h2>
+          <p>${escapeHtml(state.error || "Connect the watch with its USB data cable.")}</p>
+        </div>
+        <div class="garmin-panel__actions">${refreshForm}</div>
+      </section>
+    `;
+  }
+
+  const remoteFiles = state.files || [];
+  const remoteNames = new Set(remoteFiles.map((file) => file.name));
+  const pendingEntries = localEntries.filter((entry) => !remoteNames.has(entry.filename));
+  const free = state.storage ? formatFileSize(state.storage.free) : "Unknown";
+  const capacity = state.storage ? formatFileSize(state.storage.capacity) : "Unknown";
+
+  const sendChoices = pendingEntries.length
+    ? pendingEntries.map((entry) => {
+        const title = entry.episodeTitle || entry.filename;
+        return `
+          <label class="garmin-file">
+            <input type="checkbox" name="filename" value="${escapeHtml(entry.filename)}">
+            <span>
+              <strong>${escapeHtml(title)}</strong>
+              <small>${escapeHtml(entry.filename)}</small>
+            </span>
+          </label>
+        `;
+      }).join("")
+    : `<p class="muted">Every local converted MP3 is already on the watch.</p>`;
+
+  const remoteChoices = remoteFiles.length
+    ? remoteFiles.map((file) => {
+        const local = localEntries.find((entry) => entry.filename === file.name);
+        const title = local?.episodeTitle || file.name;
+        return `
+          <label class="garmin-file">
+            <input type="checkbox" name="object_id" value="${file.id}">
+            <span>
+              <strong>${escapeHtml(title)}</strong>
+              <small>${escapeHtml(file.name)} · ${escapeHtml(formatFileSize(file.size))}</small>
+            </span>
+          </label>
+        `;
+      }).join("")
+    : `<p class="muted">The watch’s Podcasts folder is empty.</p>`;
+
+  const sendDisabled = pendingEntries.length ? "" : " disabled";
+  const deleteDisabled = remoteFiles.length ? "" : " disabled";
+  const statusMessage = state.message
+    ? `<span>${escapeHtml(state.message)}</span>`
+    : "";
+
+  return `
+    <section id="garmin-panel" class="garmin-panel">
+      <div class="garmin-panel__header">
+        <div>
+          <small>Garmin watch</small>
+          <h2>${escapeHtml([state.manufacturer, state.model].filter(Boolean).join(" ") || "Connected")}</h2>
+          <p class="muted">${remoteFiles.length} podcast${remoteFiles.length === 1 ? "" : "s"} · ${free} free of ${capacity}</p>
+        </div>
+        <div class="garmin-panel__actions">
+          ${statusMessage}
+          ${refreshForm}
+        </div>
+      </div>
+
+      <div class="garmin-columns">
+        <form
+          hx-post="/api/garmin/send"
+          hx-target="#garmin-panel"
+          hx-swap="outerHTML"
+          hx-indicator="#garmin-send-indicator"
+          class="garmin-transfer-form"
+        >
+          <div>
+            <h3>Send to watch</h3>
+            <p class="muted">Converted MP3s not currently in Podcasts.</p>
+          </div>
+          <div class="garmin-file-list">${sendChoices}</div>
+          <div>
+            <button type="submit"${sendDisabled}>Send selected</button>
+            <span class="htmx-indicator" id="garmin-send-indicator">
+              <span class="spinner" aria-label="Sending"></span>
+              Transferring…
+            </span>
+          </div>
+        </form>
+
+        <form
+          hx-post="/api/garmin/delete"
+          hx-target="#garmin-panel"
+          hx-swap="outerHTML"
+          hx-indicator="#garmin-delete-indicator"
+          class="garmin-transfer-form"
+          data-confirm="Remove the selected podcasts from the watch?"
+        >
+          <div>
+            <h3>On watch</h3>
+            <p class="muted">Remove files directly from Podcasts.</p>
+          </div>
+          <div class="garmin-file-list">${remoteChoices}</div>
+          <div>
+            <button type="submit" class="contrast"${deleteDisabled}>Remove selected</button>
+            <span class="htmx-indicator" id="garmin-delete-indicator">
+              <span class="spinner" aria-label="Removing"></span>
+              Removing…
+            </span>
+          </div>
+        </form>
+      </div>
+    </section>
   `;
 };
 

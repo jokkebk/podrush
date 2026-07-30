@@ -217,6 +217,135 @@ section[id="converted-list"] {
   box-shadow: var(--shadow);
 }
 
+/* ── Direct Garmin transfer ───────────────────────────────── */
+
+.garmin-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  padding: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.garmin-panel__loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+}
+
+.garmin-panel__loading .spinner {
+  display: inline-block;
+  margin-left: 0;
+}
+
+.garmin-intro {
+  max-width: 48rem;
+}
+
+.garmin-intro > form {
+  margin: 0;
+}
+
+.garmin-intro__build-note {
+  font-size: 0.82rem;
+}
+
+.garmin-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.garmin-panel h2 {
+  font-size: 1.25rem;
+  margin-top: 0.15rem;
+}
+
+.garmin-panel h3 {
+  font-size: 1rem;
+}
+
+.garmin-panel p {
+  margin: 0.25rem 0 0;
+}
+
+.garmin-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+}
+
+.garmin-panel__actions form {
+  margin: 0;
+}
+
+.garmin-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.garmin-transfer-form {
+  min-width: 0;
+  margin: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+}
+
+.garmin-file-list {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.garmin-file {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.45rem;
+  border-radius: 6px;
+  font-weight: normal;
+}
+
+.garmin-file:hover {
+  background: var(--surface-strong);
+}
+
+.garmin-file input {
+  margin-top: 0.25rem;
+}
+
+.garmin-file span,
+.garmin-file strong,
+.garmin-file small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.garmin-file strong {
+  font-size: 0.88rem;
+}
+
+.garmin-file small {
+  margin-top: 0.1rem;
+  font-size: 0.72rem;
+}
+
 article {
   padding: 1.1rem 1.25rem;
 }
@@ -888,5 +1017,17 @@ article > header h3 {
   .feeds-toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .garmin-panel__header {
+    display: grid;
+  }
+
+  .garmin-panel__actions {
+    justify-content: flex-start;
+  }
+
+  .garmin-columns {
+    grid-template-columns: 1fr;
   }
 }

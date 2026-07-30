@@ -10,6 +10,7 @@ db.sqlite*
 db.test.sqlite*
 media/original/
 media/converted/
+media/.garmin-mtp/
 .env
 
 # Tooling caches

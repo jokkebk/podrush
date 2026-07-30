@@ -2,10 +2,11 @@ import { serve } from "bun";
 import { MEDIA_DIR, CONVERTED_DIR, ORIGINAL_DIR, hasGeminiKey, env, log } from "./lib";
 import { ensureCustomFeed } from "./feedService";
 import {
-  serveIndex, serveFeedHtml, serveConvertedHtml,
+  serveIndex, serveFeedHtml, serveConvertedHtml, serveGarminHtml,
   listFeeds, refreshFeedsNow, createFeed, updateFeedShortNameHandler,
   feedDetail, listConverted, retagConverted, deleteConverted,
   regeneratePodcastFeedHandler, uploadPodcastFeedHandler,
+  garminStatus, garminSend, garminDelete,
   convertEpisode, uploadCustomEpisode, serveMediaFile, serveStaticFile, serveFavicon,
   fallbackNotFound,
 } from "./handlers";
@@ -38,6 +39,7 @@ if (import.meta.main) {
       "/": { GET: serveIndex },
       "/feed/:id": { GET: serveFeedHtml },
       "/converted": { GET: serveConvertedHtml },
+      "/garmin": { GET: serveGarminHtml },
       "/api/feeds": { GET: listFeeds, POST: createFeed },
       "/api/feeds/refresh": { POST: refreshFeedsNow },
       "/api/feeds/:id/short-name": { POST: updateFeedShortNameHandler },
@@ -47,6 +49,9 @@ if (import.meta.main) {
       "/api/converted/delete": { POST: deleteConverted },
       "/api/podcast-feed/regenerate": { POST: regeneratePodcastFeedHandler },
       "/api/podcast-feed/upload": { POST: uploadPodcastFeedHandler },
+      "/api/garmin": { GET: garminStatus },
+      "/api/garmin/send": { POST: garminSend },
+      "/api/garmin/delete": { POST: garminDelete },
       "/api/episodes/:id/convert": { POST: convertEpisode },
       "/api/custom/episodes": { POST: uploadCustomEpisode },
       "/static/*": { GET: serveStaticFile },

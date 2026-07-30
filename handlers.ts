@@ -19,15 +19,20 @@ import {
 } from "./audio";
 import {
   renderFeeds, renderFeedShortNameForm, renderEpisodeList, renderFeedDetail,
-  renderConvertedRow, renderConvertedManagement,
+  renderConvertedRow, renderConvertedManagement, renderGarminPanel,
 } from "./renderers";
-import { serveFeedsPage, serveFeedDetailPage, serveConvertedPage } from "./layout";
+import {
+  serveFeedsPage, serveFeedDetailPage, serveConvertedPage, serveGarminPage,
+} from "./layout";
 import {
   generatePodcastFeed,
   parseConvertedPodcastFilename,
   uploadConvertedMedia,
   type PodcastFeedStatus,
 } from "./podcastFeed";
+import {
+  scanGarmin, sendConvertedToGarmin, deleteGarminFiles, type GarminState,
+} from "./garmin";
 
 // ─── Data helpers ─────────────────────────────────────────
 function getFeeds(): FeedRow[] {
@@ -245,6 +250,11 @@ export const serveConvertedHtml = (request: Request) => {
   return serveConvertedPage();
 };
 
+export const serveGarminHtml = (request: Request) => {
+  logRequest(request);
+  return serveGarminPage();
+};
+
 export const listFeeds = async (request: Request) => {
   logRequest(request);
   const feeds = getFeeds();
@@ -313,6 +323,61 @@ export const listConverted = async (request: Request) => {
   logRequest(request);
   const html = await renderConvertedManagementHtml("RSS regenerated from current files.");
   return htmlResponse(html);
+};
+
+const renderGarminState = (state: GarminState) => {
+  const entries = listConvertedFiles().filter((entry) =>
+    entry.filename.toLowerCase().endsWith(".mp3")
+  );
+  return renderGarminPanel(state, entries);
+};
+
+const garminErrorState = (err: unknown): GarminState => ({
+  connected: false,
+  error: err instanceof Error ? err.message : String(err),
+});
+
+export const garminStatus = async (request: Request) => {
+  logRequest(request);
+  try {
+    return htmlResponse(renderGarminState(await scanGarmin()));
+  } catch (err) {
+    log("Garmin scan failed", { error: err instanceof Error ? err.message : String(err) });
+    return htmlResponse(renderGarminState(garminErrorState(err)));
+  }
+};
+
+export const garminSend = async (request: Request) => {
+  logRequest(request);
+  try {
+    const form = await request.formData();
+    const filenames = form.getAll("filename").filter(
+      (value): value is string => typeof value === "string"
+    );
+    const entries = listConvertedFiles().filter((entry) =>
+      entry.filename.toLowerCase().endsWith(".mp3")
+    );
+    const state = await sendConvertedToGarmin(filenames, entries);
+    return htmlResponse(renderGarminState(state));
+  } catch (err) {
+    log("Garmin send failed", { error: err instanceof Error ? err.message : String(err) });
+    return htmlResponse(renderGarminState(garminErrorState(err)));
+  }
+};
+
+export const garminDelete = async (request: Request) => {
+  logRequest(request);
+  try {
+    const form = await request.formData();
+    const ids = form.getAll("object_id")
+      .filter((value): value is string => typeof value === "string")
+      .map(Number);
+    const state = await deleteGarminFiles(ids);
+    return htmlResponse(renderGarminState(state));
+  } catch (err) {
+    log("Garmin delete failed", { error: err instanceof Error ? err.message : String(err) });
+    return htmlResponse(renderGarminState(garminErrorState(err)));
+  }
 };
 
 export const regeneratePodcastFeedHandler = async (request: Request) => {
