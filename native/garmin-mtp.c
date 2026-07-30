@@ -51,6 +51,7 @@ typedef struct LIBMTP_error_struct LIBMTP_error_t;
 typedef struct LIBMTP_device_extension_struct LIBMTP_device_extension_t;
 typedef struct LIBMTP_mtpdevice_struct LIBMTP_mtpdevice_t;
 typedef struct LIBMTP_file_struct LIBMTP_file_t;
+typedef struct LIBMTP_track_struct LIBMTP_track_t;
 typedef struct LIBMTP_devicestorage_struct LIBMTP_devicestorage_t;
 
 struct LIBMTP_file_struct {
@@ -62,6 +63,32 @@ struct LIBMTP_file_struct {
   time_t modificationdate;
   LIBMTP_filetype_t filetype;
   LIBMTP_file_t *next;
+};
+
+struct LIBMTP_track_struct {
+  uint32_t item_id;
+  uint32_t parent_id;
+  uint32_t storage_id;
+  char *title;
+  char *artist;
+  char *composer;
+  char *genre;
+  char *album;
+  char *date;
+  char *filename;
+  uint16_t tracknumber;
+  uint32_t duration;
+  uint32_t samplerate;
+  uint16_t nochannels;
+  uint32_t wavecodec;
+  uint32_t bitrate;
+  uint16_t bitratetype;
+  uint16_t rating;
+  uint32_t usecount;
+  uint64_t filesize;
+  time_t modificationdate;
+  LIBMTP_filetype_t filetype;
+  LIBMTP_track_t *next;
 };
 
 struct LIBMTP_devicestorage_struct {
@@ -113,6 +140,9 @@ extern LIBMTP_file_t *LIBMTP_Get_Files_And_Folders(
     LIBMTP_mtpdevice_t *, uint32_t, uint32_t);
 extern LIBMTP_file_t *LIBMTP_new_file_t(void);
 extern void LIBMTP_destroy_file_t(LIBMTP_file_t *);
+extern LIBMTP_track_t *LIBMTP_Get_Trackmetadata(
+    LIBMTP_mtpdevice_t *, uint32_t);
+extern void LIBMTP_destroy_track_t(LIBMTP_track_t *);
 extern int LIBMTP_Send_File_From_File(
     LIBMTP_mtpdevice_t *, const char *, LIBMTP_file_t *, void *, const void *);
 extern int LIBMTP_Delete_Object(LIBMTP_mtpdevice_t *, uint32_t);
@@ -132,6 +162,7 @@ typedef struct {
   LIBMTP_mtpdevice_t *device;
   LIBMTP_devicestorage_t *storage;
   uint32_t podcasts_id;
+  uint32_t music_id;
 } watch_t;
 
 static void json_string(const char *value) {
@@ -193,14 +224,44 @@ static uint32_t find_named_folder(
   return found;
 }
 
-static int has_child_named(watch_t *watch, const char *name) {
-  LIBMTP_file_t *entries = children(watch, watch->podcasts_id);
+static uint32_t find_media_folder(watch_t *watch, const char *name) {
+  LIBMTP_file_t *entries = children(watch, MTP_ROOT);
+  LIBMTP_file_t *entry = entries;
+  uint32_t found = 0;
+  while (entry && !found) {
+    if (entry->filetype == LIBMTP_FILETYPE_FOLDER && entry->filename &&
+        strcasecmp(entry->filename, name) == 0) {
+      found = entry->item_id;
+    }
+    entry = entry->next;
+  }
+  destroy_file_list(entries);
+  return found ? found : find_named_folder(watch, MTP_ROOT, name, 0);
+}
+
+static int is_podcast_track(watch_t *watch, uint32_t id) {
+  LIBMTP_track_t *track = LIBMTP_Get_Trackmetadata(watch->device, id);
+  int is_podcast =
+      track && track->genre && strcasecmp(track->genre, "Podcast") == 0;
+  if (track) LIBMTP_destroy_track_t(track);
+  return is_podcast;
+}
+
+static int folder_has_managed_name(
+    watch_t *watch, uint32_t parent_id, const char *name,
+    int podcast_tag_required, int depth) {
+  if (!parent_id || depth > 12) return 0;
+  LIBMTP_file_t *entries = children(watch, parent_id);
   LIBMTP_file_t *entry = entries;
   int found = 0;
-  while (entry) {
-    if (entry->filename && strcmp(entry->filename, name) == 0) {
+  while (entry && !found) {
+    if (entry->filetype == LIBMTP_FILETYPE_FOLDER) {
+      found = folder_has_managed_name(
+          watch, entry->item_id, name, podcast_tag_required, depth + 1);
+    } else if (entry->filename && strcmp(entry->filename, name) == 0 &&
+        (!podcast_tag_required ||
+         is_podcast_track(watch, entry->item_id))) {
       found = 1;
-      break;
     }
     entry = entry->next;
   }
@@ -208,19 +269,38 @@ static int has_child_named(watch_t *watch, const char *name) {
   return found;
 }
 
-static int child_id_exists(watch_t *watch, uint32_t id) {
-  LIBMTP_file_t *entries = children(watch, watch->podcasts_id);
+static int folder_has_managed_id(
+    watch_t *watch, uint32_t parent_id, uint32_t id,
+    int podcast_tag_required, int depth) {
+  if (!parent_id || depth > 12) return 0;
+  LIBMTP_file_t *entries = children(watch, parent_id);
   LIBMTP_file_t *entry = entries;
   int found = 0;
-  while (entry) {
-    if (entry->item_id == id && entry->filetype != LIBMTP_FILETYPE_FOLDER) {
+  while (entry && !found) {
+    if (entry->filetype == LIBMTP_FILETYPE_FOLDER) {
+      found = folder_has_managed_id(
+          watch, entry->item_id, id, podcast_tag_required, depth + 1);
+    } else if (entry->item_id == id &&
+        (!podcast_tag_required ||
+         is_podcast_track(watch, entry->item_id))) {
       found = 1;
-      break;
     }
     entry = entry->next;
   }
   destroy_file_list(entries);
   return found;
+}
+
+static int managed_name_exists(watch_t *watch, const char *name) {
+  return folder_has_managed_name(
+             watch, watch->podcasts_id, name, 0, 0) ||
+      folder_has_managed_name(watch, watch->music_id, name, 1, 0);
+}
+
+static int managed_id_exists(watch_t *watch, uint32_t id) {
+  return folder_has_managed_id(
+             watch, watch->podcasts_id, id, 0, 0) ||
+      folder_has_managed_id(watch, watch->music_id, id, 1, 0);
 }
 
 static const char *path_basename(const char *path) {
@@ -236,7 +316,7 @@ static int send_file(watch_t *watch, const char *path) {
   }
 
   const char *name = path_basename(path);
-  if (!name[0] || has_child_named(watch, name)) return 0;
+  if (!name[0] || managed_name_exists(watch, name)) return 0;
 
   LIBMTP_file_t *file = LIBMTP_new_file_t();
   if (!file) return -1;
@@ -257,6 +337,33 @@ static int send_file(watch_t *watch, const char *path) {
   return 1;
 }
 
+static void print_managed_files(
+    watch_t *watch, uint32_t parent_id, const char *location,
+    int podcast_tag_required, int depth, int *first) {
+  if (!parent_id || depth > 12) return;
+  LIBMTP_file_t *entries = children(watch, parent_id);
+  LIBMTP_file_t *entry = entries;
+  while (entry) {
+    if (entry->filetype == LIBMTP_FILETYPE_FOLDER) {
+      print_managed_files(
+          watch, entry->item_id, location, podcast_tag_required,
+          depth + 1, first);
+    } else if (!podcast_tag_required ||
+        is_podcast_track(watch, entry->item_id)) {
+      if (!*first) putchar(',');
+      printf("{\"id\":%u,\"name\":", entry->item_id);
+      json_string(entry->filename);
+      printf(",\"size\":%llu,\"type\":%d,\"location\":",
+          (unsigned long long)entry->filesize, entry->filetype);
+      json_string(location);
+      putchar('}');
+      *first = 0;
+    }
+    entry = entry->next;
+  }
+  destroy_file_list(entries);
+}
+
 static void print_state(
     watch_t *watch, const char *manufacturer, const char *model,
     const char *serial, const char *message) {
@@ -273,21 +380,11 @@ static void print_state(
       (unsigned long long)watch->storage->FreeSpaceInBytes,
       watch->podcasts_id);
 
-  LIBMTP_file_t *entries = children(watch, watch->podcasts_id);
-  LIBMTP_file_t *entry = entries;
   int first = 1;
-  while (entry) {
-    if (entry->filetype != LIBMTP_FILETYPE_FOLDER) {
-      if (!first) putchar(',');
-      printf("{\"id\":%u,\"name\":", entry->item_id);
-      json_string(entry->filename);
-      printf(",\"size\":%llu,\"type\":%d}",
-          (unsigned long long)entry->filesize, entry->filetype);
-      first = 0;
-    }
-    entry = entry->next;
-  }
-  destroy_file_list(entries);
+  print_managed_files(
+      watch, watch->podcasts_id, "Podcasts", 0, 0, &first);
+  print_managed_files(
+      watch, watch->music_id, "Music", 1, 0, &first);
   printf("],\"message\":");
   json_string(message);
   puts("}");
@@ -352,7 +449,7 @@ static int open_watch(
     return -1;
   }
 
-  watch->podcasts_id = find_named_folder(watch, MTP_ROOT, "Podcasts", 0);
+  watch->podcasts_id = find_media_folder(watch, "Podcasts");
   if (!watch->podcasts_id) {
     char folder_name[] = "Podcasts";
     watch->podcasts_id = LIBMTP_Create_Folder(
@@ -366,6 +463,7 @@ static int open_watch(
     print_disconnected("The Podcasts folder could not be found or created.");
     return -1;
   }
+  watch->music_id = find_media_folder(watch, "Music");
 
   *manufacturer = LIBMTP_Get_Manufacturername(watch->device);
   *model = LIBMTP_Get_Modelname(watch->device);
@@ -406,7 +504,7 @@ int main(int argc, char **argv) {
       char *end = NULL;
       unsigned long parsed = strtoul(argv[index], &end, 10);
       if (!end || *end || parsed == 0 || parsed > UINT32_MAX ||
-          !child_id_exists(&watch, (uint32_t)parsed)) {
+          !managed_id_exists(&watch, (uint32_t)parsed)) {
         failures++;
         continue;
       }

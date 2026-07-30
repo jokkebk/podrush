@@ -22,7 +22,7 @@ Then open http://localhost:3000/feeds.
 - The built-in "Custom uploads" feed accepts your own MP3s: open its page, use the upload form (title, publish date, speeds), and the file flows through the same conversion, tagging, and private-feed pipeline as regular episodes.
 - Original downloads are cached under `media/original/`; converted files live in `media/converted/`.
 - The Episodes / Publish page can generate a static RSS feed from existing files in `media/converted/`.
-- On macOS, the optional [Garmin page](http://localhost:3000/garmin) can send converted MP3s straight to a connected Garmin music watch and remove existing files from its Podcasts folder. Garmin Express, Apple Music, and Rosetta are not required.
+- On macOS, the optional [Garmin page](http://localhost:3000/garmin) can send converted MP3s straight to a connected Garmin music watch and remove podcast-tagged files from either its Podcasts folder or Garmin Express's nested Music layout. Garmin Express, Apple Music, and Rosetta are not required.
 - Configure `PODRUSH_PUBLIC_BASE_URL` and `PODRUSH_UPLOAD_TARGET` to mirror `media/converted/` to a static hosting path with `rsync --delete`.
 
 ## Storage & filenames

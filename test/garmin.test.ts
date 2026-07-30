@@ -47,10 +47,16 @@ describe("Garmin transfer UI", () => {
 
   test("uses pinned open-source MTP dependencies without Garmin Express", () => {
     const source = readFileSync(new URL("../garmin.ts", import.meta.url), "utf8");
+    const helperSource = readFileSync(
+      new URL("../native/garmin-mtp.c", import.meta.url),
+      "utf8"
+    );
     expect(source).toContain('version: "1.0.29"');
     expect(source).toContain('version: "1.1.22"');
     expect(source).not.toContain("/Applications/Garmin Express.app");
     expect(source).not.toContain("-arch\", \"x86_64");
+    expect(helperSource).toContain('strcasecmp(track->genre, "Podcast")');
+    expect(helperSource).toContain('watch->music_id, "Music", 1');
   });
 
   test("shows local files missing from a connected watch", () => {
@@ -81,12 +87,14 @@ describe("Garmin transfer UI", () => {
         name: localEntry.filename,
         size: 12_000_000,
         type: 2,
+        location: "Music",
       }],
     }, [localEntry]);
 
     expect(html).toContain('name="object_id" value="42"');
     expect(html).toContain('hx-post="/api/garmin/delete"');
     expect(html).toContain("Remove selected");
+    expect(html).toContain("11.4 MB · Music");
     expect(html).toContain("Every local converted MP3 is already on the watch.");
     expect(html).not.toContain(`name="filename" value="${localEntry.filename}"`);
   });

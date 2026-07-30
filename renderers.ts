@@ -569,12 +569,13 @@ export const renderGarminPanel = (
     ? remoteFiles.map((file) => {
         const local = localEntries.find((entry) => entry.filename === file.name);
         const title = local?.episodeTitle || file.name;
+        const location = file.location ? ` · ${file.location}` : "";
         return `
           <label class="garmin-file">
             <input type="checkbox" name="object_id" value="${file.id}">
             <span>
               <strong>${escapeHtml(title)}</strong>
-              <small>${escapeHtml(file.name)} · ${escapeHtml(formatFileSize(file.size))}</small>
+              <small>${escapeHtml(file.name)} · ${escapeHtml(formatFileSize(file.size))}${escapeHtml(location)}</small>
             </span>
           </label>
         `;

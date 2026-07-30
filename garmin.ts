@@ -44,6 +44,7 @@ export type GarminFile = {
   name: string;
   size: number;
   type: number;
+  location?: "Podcasts" | "Music";
 };
 
 export type GarminState = {
