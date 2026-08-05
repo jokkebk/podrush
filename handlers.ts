@@ -31,7 +31,7 @@ import {
   type PodcastFeedStatus,
 } from "./podcastFeed";
 import {
-  scanGarmin, sendConvertedToGarmin, deleteGarminFiles, type GarminState,
+  scanGarmin, sendConvertedToGarmin, deleteGarminFiles, type GarminState, type GarminView,
 } from "./garmin";
 
 // ─── Data helpers ─────────────────────────────────────────
@@ -332,6 +332,9 @@ const renderGarminState = (state: GarminState) => {
   return renderGarminPanel(state, entries);
 };
 
+const garminViewFromRequest = (request: Request): GarminView =>
+  new URL(request.url).searchParams.get("view") === "all" ? "all" : "podcasts";
+
 const garminErrorState = (err: unknown): GarminState => ({
   connected: false,
   error: err instanceof Error ? err.message : String(err),
@@ -339,8 +342,9 @@ const garminErrorState = (err: unknown): GarminState => ({
 
 export const garminStatus = async (request: Request) => {
   logRequest(request);
+  const view = garminViewFromRequest(request);
   try {
-    return htmlResponse(renderGarminState(await scanGarmin()));
+    return htmlResponse(renderGarminState(await scanGarmin(view)));
   } catch (err) {
     log("Garmin scan failed", { error: err instanceof Error ? err.message : String(err) });
     return htmlResponse(renderGarminState(garminErrorState(err)));
@@ -545,15 +549,17 @@ export const uploadCustomEpisode = async (request: Request) => {
     for (const speed of speeds) {
       const speedLabel = formatSpeedLabel(speed);
       const targetPath = join(CONVERTED_DIR, `${base}-${speedLabel}x.mp3`);
-      await convertAudio(originalPath, targetPath, speed);
-      createdPaths.push(targetPath);
-      await writeId3Tags(targetPath, {
+      const targetExisted = await Bun.file(targetPath).exists();
+      const tags = {
         title: episode.title || undefined,
         artist: feed.title || undefined,
         album: feed.title || undefined,
         date: formatId3Date(episode.published_at) || undefined,
         genre: "Podcast",
-      });
+      };
+      await convertAudio(originalPath, targetPath, speed, tags);
+      createdPaths.push(targetPath);
+      if (targetExisted) await writeId3Tags(targetPath, tags);
     }
     regeneratePodcastFeedSafe("RSS regenerated after custom upload.");
   } catch (err) {
@@ -598,14 +604,16 @@ export const convertEpisode = async (request: Request) => {
     const base = await buildFilenameBase(feed, episode);
     const speedLabel = formatSpeedLabel(speed);
     const targetPath = join(CONVERTED_DIR, `${base}-${speedLabel}x.mp3`);
-    await convertAudio(originalPath, targetPath, speed);
-    await writeId3Tags(targetPath, {
+    const targetExisted = await Bun.file(targetPath).exists();
+    const tags = {
       title: episode.title || undefined,
       artist: feed.title || undefined,
       album: feed.title || undefined,
       date: formatId3Date(episode.published_at) || undefined,
       genre: "Podcast",
-    });
+    };
+    await convertAudio(originalPath, targetPath, speed, tags);
+    if (targetExisted) await writeId3Tags(targetPath, tags);
     regeneratePodcastFeedSafe("RSS regenerated after conversion.");
     const filename = targetPath.split(/[/\\\\]/).pop();
     const html = `<a class="contrast" href="/media/converted/${filename}" download>Download ${speedLabel}x</a>`;

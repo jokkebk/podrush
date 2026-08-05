@@ -339,25 +339,29 @@ static int send_file(watch_t *watch, const char *path) {
 
 static void print_managed_files(
     watch_t *watch, uint32_t parent_id, const char *location,
-    int podcast_tag_required, int depth, int *first) {
+    int podcast_tag_required, int include_all, int depth, int *first) {
   if (!parent_id || depth > 12) return;
   LIBMTP_file_t *entries = children(watch, parent_id);
   LIBMTP_file_t *entry = entries;
   while (entry) {
     if (entry->filetype == LIBMTP_FILETYPE_FOLDER) {
       print_managed_files(
-          watch, entry->item_id, location, podcast_tag_required,
+        watch, entry->item_id, location, podcast_tag_required, include_all,
           depth + 1, first);
-    } else if (!podcast_tag_required ||
-        is_podcast_track(watch, entry->item_id)) {
+    } else {
+      int is_podcast = strcasecmp(location, "Podcasts") == 0 ||
+          is_podcast_track(watch, entry->item_id);
+      if (!podcast_tag_required || is_podcast) {
       if (!*first) putchar(',');
       printf("{\"id\":%u,\"name\":", entry->item_id);
       json_string(entry->filename);
       printf(",\"size\":%llu,\"type\":%d,\"location\":",
           (unsigned long long)entry->filesize, entry->filetype);
       json_string(location);
+      printf(",\"podcast\":%s", is_podcast ? "true" : "false");
       putchar('}');
       *first = 0;
+      }
     }
     entry = entry->next;
   }
@@ -366,7 +370,7 @@ static void print_managed_files(
 
 static void print_state(
     watch_t *watch, const char *manufacturer, const char *model,
-    const char *serial, const char *message) {
+    const char *serial, const char *message, int include_all) {
   printf("{\"connected\":true,\"manufacturer\":");
   json_string(manufacturer);
   printf(",\"model\":");
@@ -382,9 +386,14 @@ static void print_state(
 
   int first = 1;
   print_managed_files(
-      watch, watch->podcasts_id, "Podcasts", 0, 0, &first);
-  print_managed_files(
-      watch, watch->music_id, "Music", 1, 0, &first);
+      watch, watch->podcasts_id, "Podcasts", 0, include_all, 0, &first);
+  if (include_all) {
+    print_managed_files(
+        watch, watch->music_id, "Music", 0, 1, 0, &first);
+  } else {
+    print_managed_files(
+        watch, watch->music_id, "Music", 1, 0, 0, &first);
+  }
   printf("],\"message\":");
   json_string(message);
   puts("}");
@@ -493,6 +502,8 @@ int main(int argc, char **argv) {
 
   int changed = 0;
   int failures = 0;
+  int include_all = strcmp(command, "scan") == 0 &&
+      argc > 2 && strcmp(argv[2], "all") == 0;
   if (strcmp(command, "send") == 0) {
     for (int index = 2; index < argc; index++) {
       int result = send_file(&watch, argv[index]);
@@ -529,11 +540,18 @@ int main(int argc, char **argv) {
         changed == 1 ? "" : "s", failures ? "; some removals failed" : "");
   }
 
-  print_state(&watch, manufacturer, model, serial, message);
+  print_state(&watch, manufacturer, model, serial, message, include_all);
   free(manufacturer);
   free(model);
   free(serial);
-  LIBMTP_Release_Device(watch.device);
+  /*
+   * Some Garmin firmware accepts transfers but does not reliably implement
+   * PTP CloseSession. libmtp logs that failure from LIBMTP_Release_Device,
+   * and the next process then has to reset an interface that may hang. The
+   * helper is a short-lived process, so letting the OS close the USB handle
+   * avoids the broken explicit session-close exchange and keeps reconnects
+   * usable. All transfer data has already been sent before this point.
+   */
   free(raw_devices);
   return failures ? 1 : 0;
 }

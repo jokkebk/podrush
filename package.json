@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "printf '\\033]0;Podrush\\a' && bun --hot run index.ts",
+    "dev": "printf '\\033]0;Podrush\\a' && sh -c 'bun --hot run index.ts & server_pid=$!; trap \"kill $server_pid 2>/dev/null || true\" INT TERM EXIT; sleep 1; open http://localhost:${PORT:-3000}/feeds; wait $server_pid'",
     "test": "PODRUSH_DB_PATH=db.test.sqlite bun test"
   },
   "devDependencies": {

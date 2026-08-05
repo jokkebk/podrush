@@ -179,7 +179,20 @@ export const ensureOriginalAudio = async (feed: FeedRow, episode: EpisodeRow): P
   return targetPath;
 };
 
-export const convertAudio = async (originalPath: string, targetPath: string, speed: number) => {
+export type AudioTags = {
+  title?: string | null;
+  artist?: string | null;
+  album?: string | null;
+  date?: string | null;
+  genre?: string | null;
+};
+
+export const convertAudio = async (
+  originalPath: string,
+  targetPath: string,
+  speed: number,
+  tags: AudioTags = {}
+) => {
   const targetFile = Bun.file(targetPath);
   if (await targetFile.exists()) {
     log("Conversion already exists", { targetPath, speed });
@@ -194,15 +207,22 @@ export const convertAudio = async (originalPath: string, targetPath: string, spe
   conversionsInProgress.add(targetPath);
   try {
     log("Starting conversion", { originalPath, targetPath, speed });
-    const proc = Bun.spawn(
-      [
-        "ffmpeg", "-i", originalPath,
-        "-filter:a", `atempo=${speed}`,
-        "-metadata", "genre=Podcast",
-        targetPath,
-      ],
-      { stdout: "ignore", stderr: "pipe" }
-    );
+    const metadata = { genre: "Podcast", ...tags };
+    const args = [
+      "ffmpeg", "-y", "-i", originalPath,
+      "-map", "0:a:0",
+      "-filter:a", `atempo=${speed}`,
+      "-map_metadata", "-1",
+      "-id3v2_version", "3",
+      // Keep the previous output profile explicit while avoiding a later
+      // full-file remux solely for ID3 tags.
+      "-c:a", "libmp3lame", "-b:a", "128k",
+    ];
+    for (const [key, value] of Object.entries(metadata)) {
+      if (value) args.push("-metadata", `${key}=${value}`);
+    }
+    args.push(targetPath);
+    const proc = Bun.spawn(args, { stdout: "ignore", stderr: "pipe" });
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
       const errorText = await new Response(proc.stderr).text();

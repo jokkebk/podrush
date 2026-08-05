@@ -259,6 +259,54 @@ section[id="converted-list"] {
   gap: 1rem;
 }
 
+.garmin-view-toggle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.garmin-view-toggle form {
+  margin: 0;
+}
+
+.garmin-view-toggle button {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.82rem;
+}
+
+.garmin-file-group {
+  margin: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.garmin-file-group legend {
+  padding: 0 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.garmin-other-media {
+  border-top: 1px solid var(--border);
+  padding-top: 0.8rem;
+}
+
+.garmin-other-media summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.garmin-file--readonly {
+  cursor: default;
+}
+
+.garmin-status-error {
+  color: #a33a2b;
+}
+
 .garmin-panel h2 {
   font-size: 1.25rem;
   margin-top: 0.15rem;

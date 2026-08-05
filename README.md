@@ -10,9 +10,9 @@ Minimal Bun + TypeScript + HTMX web app to download podcast episodes and create 
 ## Setup
 ```bash
 bun install               # install dependencies
-bun --hot run index.ts
+bun run dev
 ```
-Then open http://localhost:3000/feeds.
+On macOS, `bun run dev` opens http://localhost:3000/feeds automatically.
 
 ## Usage
 - Add an RSS feed URL.
@@ -22,7 +22,7 @@ Then open http://localhost:3000/feeds.
 - The built-in "Custom uploads" feed accepts your own MP3s: open its page, use the upload form (title, publish date, speeds), and the file flows through the same conversion, tagging, and private-feed pipeline as regular episodes.
 - Original downloads are cached under `media/original/`; converted files live in `media/converted/`.
 - The Episodes / Publish page can generate a static RSS feed from existing files in `media/converted/`.
-- On macOS, the optional [Garmin page](http://localhost:3000/garmin) can send converted MP3s straight to a connected Garmin music watch and remove podcast-tagged files from either its Podcasts folder or Garmin Express's nested Music layout. Garmin Express, Apple Music, and Rosetta are not required.
+- On macOS, the optional [Garmin page](http://localhost:3000/garmin) can send converted MP3s straight to a connected Garmin music watch and remove podcast-tagged files from either its Podcasts folder or Garmin Express's nested Music layout. The page can also scan all media under the watch's Podcasts and Music folders and show unmatched media read-only. Garmin Express, Apple Music, and Rosetta are not required.
 - Configure `PODRUSH_PUBLIC_BASE_URL` and `PODRUSH_UPLOAD_TARGET` to mirror `media/converted/` to a static hosting path with `rsync --delete`.
 
 ## Storage & filenames
@@ -63,7 +63,7 @@ For an rclone target, configure the remote once with `rclone config` (for Cloudf
 Spotify/Garmin note: this creates a normal static RSS feed for testing private podcast ingestion. Spotify's Garmin app supports offline podcast downloads, but arbitrary private RSS ingestion may not be supported directly by Spotify.
 
 ## Notes
-- Conversion uses `ffmpeg -filter:a atempo=<speed>`.
+- Conversion uses `ffmpeg -filter:a atempo=<speed>` and writes ID3 tags in the same pass, avoiding a second full-file remux.
 - Direct Garmin transfer is optional and currently targets macOS. Podrush does not scan USB, download dependencies, or build anything until **Connect to watch** is clicked on `/garmin`. The first connection downloads integrity-checked libusb 1.0.29 and libmtp 1.1.22 source releases, then builds a native local adapter in `media/.garmin-mtp/`. Xcode Command Line Tools (`clang` and `make`) and an internet connection are required for that one-time build. Later transfers use the cached native adapter. Only one MTP app can control the watch at a time.
 - Feed refresh staleness is configurable with `FEED_REFRESH_MAX_AGE_HOURS` (or `REFRESH_MAX_AGE_HOURS`).
 - HTMX provides the button-to-link swap; spinners indicate in-progress conversions.

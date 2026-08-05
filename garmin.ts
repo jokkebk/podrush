@@ -20,7 +20,7 @@ const RUNTIME_DIR = join(TOOL_DIR, "runtime");
 const MARKER_PATH = join(TOOL_DIR, "build.json");
 const BUILD_TIMEOUT_MS = 5 * 60 * 1000;
 const USB_TIMEOUT_MS = 12 * 60 * 1000;
-const BUILD_REVISION = 1;
+const BUILD_REVISION = 2;
 
 const DEPENDENCIES = {
   libusb: {
@@ -45,10 +45,14 @@ export type GarminFile = {
   size: number;
   type: number;
   location?: "Podcasts" | "Music";
+  podcast?: boolean;
 };
+
+export type GarminView = "podcasts" | "all";
 
 export type GarminState = {
   connected: boolean;
+  view?: GarminView;
   manufacturer?: string;
   model?: string;
   serial?: string;
@@ -343,6 +347,17 @@ const executeGarmin = async (
     const detail = result.stderr.trim() || output || `helper exited ${result.exitCode}`;
     throw new Error(`Garmin MTP helper returned invalid data: ${detail}`);
   }
+  if (command === "scan") {
+    state.view = args[0] === "all" ? "all" : "podcasts";
+  }
+  log("Garmin operation result", {
+    command,
+    exitCode: result.exitCode,
+    connected: state.connected,
+    message: state.message,
+    error: state.error,
+    fileCount: state.files?.length,
+  });
 
   if (result.stderr.trim() || stdoutDiagnostics) {
     log("Garmin MTP diagnostics", {
@@ -373,7 +388,8 @@ const queueGarmin = (
   return garminJob;
 };
 
-export const scanGarmin = () => queueGarmin("scan");
+export const scanGarmin = (view: GarminView = "podcasts") =>
+  queueGarmin("scan", view === "all" ? ["all"] : []);
 
 export const sendConvertedToGarmin = (
   filenames: string[],

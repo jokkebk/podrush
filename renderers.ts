@@ -515,10 +515,11 @@ export const renderGarminPanel = (
   state: GarminState,
   localEntries: ConvertedEntry[]
 ): string => {
+  const currentView = state.view || "podcasts";
   const refreshLabel = state.connected ? "Refresh watch" : "Reconnect";
   const refreshForm = `
     <form
-      hx-get="/api/garmin"
+      hx-get="/api/garmin?view=${currentView}"
       hx-target="#garmin-panel"
       hx-swap="outerHTML"
       hx-indicator="#garmin-refresh-indicator"
@@ -546,12 +547,29 @@ export const renderGarminPanel = (
 
   const remoteFiles = state.files || [];
   const remoteNames = new Set(remoteFiles.map((file) => file.name));
+  const localByName = new Map(localEntries.map((entry) => [entry.filename, entry]));
+  const podcastRemoteFiles = remoteFiles.filter((file) =>
+    Boolean(file.podcast) || localByName.has(file.name)
+  );
+  const otherRemoteFiles = remoteFiles.filter((file) => !podcastRemoteFiles.includes(file));
+  const visibleRemoteFiles = currentView === "all" ? podcastRemoteFiles : remoteFiles;
   const pendingEntries = localEntries.filter((entry) => !remoteNames.has(entry.filename));
   const free = state.storage ? formatFileSize(state.storage.free) : "Unknown";
   const capacity = state.storage ? formatFileSize(state.storage.capacity) : "Unknown";
 
+  const pendingGroups = new Map<string, ConvertedEntry[]>();
+  for (const entry of pendingEntries) {
+    const group = entry.feedTitle || "Other podcasts";
+    const entries = pendingGroups.get(group) || [];
+    entries.push(entry);
+    pendingGroups.set(group, entries);
+  }
+
   const sendChoices = pendingEntries.length
-    ? pendingEntries.map((entry) => {
+    ? [...pendingGroups.entries()].map(([feedTitle, entries]) => `
+        <fieldset class="garmin-file-group">
+          <legend>${escapeHtml(feedTitle)}</legend>
+          ${entries.map((entry) => {
         const title = entry.episodeTitle || entry.filename;
         return `
           <label class="garmin-file">
@@ -562,12 +580,14 @@ export const renderGarminPanel = (
             </span>
           </label>
         `;
-      }).join("")
+          }).join("")}
+        </fieldset>
+      `).join("")
     : `<p class="muted">Every local converted MP3 is already on the watch.</p>`;
 
-  const remoteChoices = remoteFiles.length
-    ? remoteFiles.map((file) => {
-        const local = localEntries.find((entry) => entry.filename === file.name);
+  const remoteChoices = visibleRemoteFiles.length
+    ? visibleRemoteFiles.map((file) => {
+        const local = localByName.get(file.name);
         const title = local?.episodeTitle || file.name;
         const location = file.location ? ` · ${file.location}` : "";
         return `
@@ -582,11 +602,42 @@ export const renderGarminPanel = (
       }).join("")
     : `<p class="muted">The watch’s Podcasts folder is empty.</p>`;
 
-  const sendDisabled = pendingEntries.length ? "" : " disabled";
-  const deleteDisabled = remoteFiles.length ? "" : " disabled";
-  const statusMessage = state.message
-    ? `<span>${escapeHtml(state.message)}</span>`
+  const otherChoices = otherRemoteFiles.length
+    ? `
+      <details class="garmin-other-media" open>
+        <summary>Other media on watch (${otherRemoteFiles.length})</summary>
+        <div class="garmin-file-list">
+          ${otherRemoteFiles.map((file) => `
+            <div class="garmin-file garmin-file--readonly">
+              <span>
+                <strong>${escapeHtml(file.name)}</strong>
+                <small>${escapeHtml(formatFileSize(file.size))}${file.location ? ` · ${escapeHtml(file.location)}` : ""}</small>
+              </span>
+            </div>
+          `).join("")}
+        </div>
+      </details>
+    `
     : "";
+
+  const sendDisabled = pendingEntries.length ? "" : " disabled";
+  const deleteDisabled = visibleRemoteFiles.length ? "" : " disabled";
+  const statusMessage = [state.message, state.error]
+    .filter((message): message is string => Boolean(message))
+    .map((message) => `<span class="${message === state.error ? "garmin-status-error" : ""}">${escapeHtml(message)}</span>`)
+    .join("");
+  const viewToggle = `
+    <div class="garmin-view-toggle" role="group" aria-label="Watch media view">
+      <small>View</small>
+      <form hx-get="/api/garmin?view=podcasts" hx-target="#garmin-panel" hx-swap="outerHTML" hx-indicator="#garmin-view-indicator">
+        <button type="submit" class="${currentView === "podcasts" ? "" : "secondary"}">Podcasts only</button>
+      </form>
+      <form hx-get="/api/garmin?view=all" hx-target="#garmin-panel" hx-swap="outerHTML" hx-indicator="#garmin-view-indicator">
+        <button type="submit" class="${currentView === "all" ? "" : "secondary"}">All media</button>
+      </form>
+      <span id="garmin-view-indicator" class="htmx-indicator"><span class="spinner" aria-label="Scanning"></span></span>
+    </div>
+  `;
 
   return `
     <section id="garmin-panel" class="garmin-panel">
@@ -594,13 +645,17 @@ export const renderGarminPanel = (
         <div>
           <small>Garmin watch</small>
           <h2>${escapeHtml([state.manufacturer, state.model].filter(Boolean).join(" ") || "Connected")}</h2>
-          <p class="muted">${remoteFiles.length} podcast${remoteFiles.length === 1 ? "" : "s"} · ${free} free of ${capacity}</p>
+          <p class="muted">${currentView === "all"
+            ? `${podcastRemoteFiles.length} podcast file${podcastRemoteFiles.length === 1 ? "" : "s"} · ${otherRemoteFiles.length} other media`
+            : `${remoteFiles.length} podcast${remoteFiles.length === 1 ? "" : "s"}`} · ${free} free of ${capacity}</p>
         </div>
         <div class="garmin-panel__actions">
           ${statusMessage}
           ${refreshForm}
         </div>
       </div>
+
+      ${viewToggle}
 
       <div class="garmin-columns">
         <form
@@ -634,7 +689,7 @@ export const renderGarminPanel = (
         >
           <div>
             <h3>On watch</h3>
-            <p class="muted">Remove files directly from Podcasts.</p>
+            <p class="muted">Podrush matches exact converted filenames and can remove selected podcast files.</p>
           </div>
           <div class="garmin-file-list">${remoteChoices}</div>
           <div>
@@ -646,6 +701,7 @@ export const renderGarminPanel = (
           </div>
         </form>
       </div>
+      ${otherChoices}
     </section>
   `;
 };
